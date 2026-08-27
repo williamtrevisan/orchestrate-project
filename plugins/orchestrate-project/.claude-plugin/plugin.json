@@ -1,0 +1,37 @@
+{
+  "name": "orchestrate-project",
+  "displayName": "Orchestrate Project",
+  "version": "0.1.0",
+  "description": "Compute a stack order from a work-group's real dependency graph, dispatch one autonomous implementer per eligible item into its own Compozy worktree cut from its parent's branch, and babysit every PR through CI and review until a human can merge the stack.",
+  "author": {
+    "name": "William Trevisan",
+    "url": "https://github.com/williamtrevisan"
+  },
+  "homepage": "https://github.com/williamtrevisan/orchestrate-project",
+  "repository": "https://github.com/williamtrevisan/orchestrate-project",
+  "license": "CC-BY-4.0",
+  "keywords": [
+    "orchestration",
+    "worktree",
+    "compozy",
+    "github",
+    "jira",
+    "linear"
+  ],
+  "userConfig": {
+    "default_tracker": {
+      "type": "string",
+      "title": "Default tracker",
+      "description": "Tracker offered first by /orchestrate-init. A machine-level convenience only: the authoritative choice per repository is the tracker key in .orchestrate-project.json, which is committed.",
+      "sensitive": false,
+      "required": false
+    },
+    "compozy_pin": {
+      "type": "string",
+      "title": "Pinned Compozy version",
+      "description": "The exact Compozy version references/runner.md was captured against, prerelease identifier included. /orchestrate-init warns when the installed build differs. A bump is a re-verification trigger, not an automatic upgrade.",
+      "sensitive": false,
+      "required": false
+    }
+  }
+}
