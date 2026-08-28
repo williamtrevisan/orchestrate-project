@@ -285,3 +285,138 @@ class NonInteractive(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfigBuilding(unittest.TestCase):
+    def test_carries_every_documented_top_level_key(self):
+        config = init.build_config("github", {"gate_command": "x"}, today="2026-01-01")
+        for key in (
+            "tracker",
+            "runner",
+            "compozy_pin",
+            "plugin_version",
+            "initialized_at",
+            "project",
+        ):
+            self.assertIn(key, config)
+
+    def test_runner_has_one_legal_value(self):
+        """runner is recorded, not selected."""
+        config = init.build_config("github", {"gate_command": "x"}, today="2026-01-01")
+        self.assertEqual(config["runner"], "compozy")
+
+    def test_plugin_version_is_read_from_the_manifest(self):
+        with open(
+            os.path.join(paths.PLUGIN_MANIFEST), encoding="utf-8"
+        ) as handle:
+            expected = json.load(handle)["version"]
+        self.assertEqual(init.plugin_version(), expected)
+
+    def test_an_absent_optional_key_is_written_as_null_not_omitted(self):
+        """OPP-74: absence is a recorded decision, not a gap another project's
+        value can quietly fill."""
+        config = init.build_config("github", {"gate_command": "x"}, today="2026-01-01")
+        self.assertEqual(sorted(config["project"]), sorted(init.PROJECT_KEYS))
+        self.assertIsNone(config["project"]["constitution_path"])
+
+    def test_missing_required_names_the_key(self):
+        self.assertEqual(init.missing_required({}), ["gate_command"])
+
+    def test_optional_keys_are_never_required(self):
+        self.assertEqual(init.missing_required({"gate_command": "make test"}), [])
+
+
+class WriteSubcommand(unittest.TestCase):
+    def _write(self, root, extra=None):
+        argv = [
+            "--root",
+            root,
+            "write",
+            "--tracker",
+            "github",
+            "--gate-command",
+            "composer test",
+            "--today",
+            "2026-01-01",
+        ]
+        return init.main(argv + (extra or []))
+
+    def test_writes_the_config_at_the_repository_root(self):
+        """OPP-16: the same key, at the same path, the skill already reads."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = self._write(tmp)
+            self.assertEqual(code, 0)
+            path = os.path.join(tmp, init.CONFIG_NAME)
+            self.assertTrue(os.path.isfile(path))
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["tracker"], "github")
+
+    def test_refuses_to_overwrite_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._write(tmp)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = self._write(tmp)
+            self.assertEqual(code, 3)
+            self.assertIn("already exists", out.getvalue())
+
+    def test_force_replaces_an_existing_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._write(tmp)
+                code = self._write(tmp, ["--force"])
+            self.assertEqual(code, 0)
+
+    def test_without_a_gate_command_it_exits_4_naming_the_key(self):
+        """OPP-70/74: no value is carried over from another project."""
+        with tempfile.TemporaryDirectory() as tmp:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = init.main(
+                    ["--root", tmp, "write", "--tracker", "github", "--today", "x"]
+                )
+            self.assertEqual(code, 4)
+            self.assertIn("gate_command", err.getvalue())
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_a_malformed_existing_config_stops_the_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(
+                os.path.join(tmp, init.CONFIG_NAME), "w", encoding="utf-8"
+            ) as fh:
+                fh.write("{oops")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = self._write(tmp)
+            self.assertEqual(code, 1)
+            self.assertIn("not valid JSON", err.getvalue())
+
+    def test_an_unshipped_tracker_is_rejected_before_any_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    init.main(
+                        ["--root", tmp, "write", "--tracker", "asana", "--today", "x"]
+                    )
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_the_written_file_ends_with_a_newline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._write(tmp)
+            with open(
+                os.path.join(tmp, init.CONFIG_NAME), encoding="utf-8"
+            ) as handle:
+                self.assertTrue(handle.read().endswith("\n"))
+
+    def test_status_round_trips_what_write_produced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._write(tmp)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = init.main(["--root", tmp, "status"])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out.getvalue())["tracker"], "github")

@@ -27,6 +27,7 @@ Exit codes:
 """
 
 import argparse
+import datetime
 import json
 import os
 import shutil
@@ -202,6 +203,52 @@ def detect_constitutions(root):
     return [c for c in CONSTITUTION_CANDIDATES if os.path.isfile(os.path.join(root, c))]
 
 
+#: Keys of the project block, and whether a phase can proceed without them.
+PROJECT_KEYS = {
+    "gate_command": "required",
+    "gate_working_dir": "optional",
+    "bootstrap_marker": "optional",
+    "constitution_path": "optional",
+}
+
+
+def plugin_version():
+    """The version this plugin reports, read from its own manifest."""
+    manifest = os.path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json")
+    try:
+        with open(manifest, encoding="utf-8") as handle:
+            return json.load(handle).get("version")
+    except (ValueError, OSError):
+        return None
+
+
+def build_config(tracker, project, pin=None, today=None):
+    """The configuration document, with every project key stated explicitly.
+
+    An optional key the operator did not supply is written as null rather than
+    omitted. Absence is then a recorded decision a phase can read, instead of a
+    gap another project's value could quietly fill (OPP-74).
+    """
+    stamp = today or datetime.date.today().isoformat()
+    return {
+        "tracker": tracker,
+        "runner": RUNNER,
+        "compozy_pin": pin,
+        "plugin_version": plugin_version(),
+        "initialized_at": stamp,
+        "project": {key: project.get(key) for key in sorted(PROJECT_KEYS)},
+    }
+
+
+def missing_required(project):
+    """Required project keys the caller did not supply, by name."""
+    return sorted(
+        key
+        for key, need in PROJECT_KEYS.items()
+        if need == "required" and not project.get(key)
+    )
+
+
 def read_config(root):
     path = os.path.join(root, CONFIG_NAME)
     if not os.path.isfile(path):
@@ -253,6 +300,60 @@ def _print_human(report):
     print(f"\ninit: {passing}/{len(report['tracker_probes'])} tracker probe(s) passing")
 
 
+def cmd_write(args):
+    trackers = shipped_trackers()
+    if args.tracker not in trackers:
+        print(
+            f"init: unknown tracker {args.tracker!r}; shipped: {', '.join(trackers)}",
+            file=sys.stderr,
+        )
+        return 4
+
+    project = {
+        "gate_command": args.gate_command,
+        "gate_working_dir": args.gate_working_dir,
+        "bootstrap_marker": args.bootstrap_marker,
+        "constitution_path": args.constitution_path,
+    }
+    absent = missing_required(project)
+    if absent:
+        print(
+            f"init: cannot write without {', '.join(absent)} - "
+            "no value is carried over from another project",
+            file=sys.stderr,
+        )
+        return 4
+
+    existing, error = read_config(args.root)
+    if error:
+        print(f"  FAIL  {error}", file=sys.stderr)
+        return 1
+    if existing is not None and not args.force:
+        print(f"init: {CONFIG_NAME} already exists; pass --force to replace it")
+        print(json.dumps(existing, indent=2, ensure_ascii=False))
+        return 3
+
+    probe = probe_tracker(args.tracker)
+    if not probe["ok"]:
+        print(
+            f"  FAIL  {probe['tracker']:<8} {probe['command']} - {probe['stderr']}",
+            file=sys.stderr,
+        )
+        print("init: probe failed; nothing written", file=sys.stderr)
+        return 1
+
+    config = build_config(args.tracker, project, pin=args.pin, today=args.today)
+    path = os.path.join(args.root, CONFIG_NAME)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+
+    print(json.dumps(config, indent=2, ensure_ascii=False))
+    if args.output != "json":
+        print(f"\ninit: wrote {CONFIG_NAME} (plugin {config['plugin_version']})")
+    return 0
+
+
 def cmd_status(args):
     config, error = read_config(args.root)
     if error:
@@ -273,6 +374,11 @@ def _selftest():
     assert absent["present"] in (True, False)
     assert detect_gate_commands("/nonexistent-path-for-selftest") == []
     assert detect_constitutions("/nonexistent-path-for-selftest") == []
+    assert missing_required({}) == ["gate_command"]
+    assert missing_required({"gate_command": "make test"}) == []
+    sample = build_config("github", {"gate_command": "x"}, today="2026-01-01")
+    assert set(sample["project"]) == set(PROJECT_KEYS)
+    assert json.loads(json.dumps(sample)) == sample
     print("selftest_init: ok")
     return 0
 
@@ -289,6 +395,18 @@ def main(argv=None):
     p.add_argument("-o", "--output", default="human", choices=["human", "json"])
     p.add_argument("--pin", default=None, help="Compozy version to compare against")
     p.set_defaults(fn=cmd_probe)
+
+    p = sub.add_parser("write", help="Write the repository configuration")
+    p.add_argument("--tracker", required=True, choices=shipped_trackers() or None)
+    p.add_argument("--gate-command", default=None, help="Required: the project's gate")
+    p.add_argument("--gate-working-dir", default=None)
+    p.add_argument("--bootstrap-marker", default=None)
+    p.add_argument("--constitution-path", default=None)
+    p.add_argument("--pin", default=None, help="Compozy version this repo targets")
+    p.add_argument("--today", default=None, help="Override the stamp (tests)")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("-o", "--output", default="human", choices=["human", "json"])
+    p.set_defaults(fn=cmd_write)
 
     p = sub.add_parser("status", help="Print the current configuration")
     p.set_defaults(fn=cmd_status)
