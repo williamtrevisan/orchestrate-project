@@ -1,0 +1,150 @@
+# The runner — Compozy
+
+The only file in this plugin where a Compozy command or flag appears. Every phase calls an
+operation by name and never writes a flag of its own. When Compozy changes, this file changes and
+nothing else does.
+
+## Capture provenance
+
+```
+compozy version   →   compozy 0.3.0-beta.21
+captured          →   2026-08-28, linux/x86_64
+pinned            →   v0.3.0-beta.21
+```
+
+**Every flag below was read from `compozy <command> --help` on that build.** None was taken from
+the documentation site, which returns 404 on every subcommand page, and none was written from
+convention. That rule is not ceremony — three separate bugs in this migration came from assuming a
+conventional form:
+
+| Assumed | Actual | How it failed |
+| --- | --- | --- |
+| `compozy --version` | `compozy version` | Reported the runtime present with no version at all |
+| version string carries `v` | `compozy 0.3.0-beta.21` | Reported drift between a build and itself |
+| `compozy daemon status` | `compozy status` | Printed help, exited 0, read as a stopped daemon while it ran |
+
+**A version bump invalidates this table.** `/orchestrate-init` warns when the installed build differs
+from the pin; re-capture before dispatching rather than assuming a flag survived. Compozy has
+shipped only prereleases — 21 in under two months — so this is a live risk, not a formality.
+
+## Global conventions
+
+- `-o json` on every call. `--json` is an accepted alias; prefer `-o json` for one spelling.
+- `--workspace <ID|name|path>` overrides workspace context on every operation that touches one.
+- Errors carry a `diagnostic` block with `code` and often `suggested_command`. **Read the suggested
+  command rather than inventing a recovery** — it comes from the runtime that knows what it needs.
+
+## Preflight
+
+| Operation | Command |
+| --- | --- |
+| `daemon_state()` | `compozy status -o json` → `.daemon.status == "running"` |
+| `diagnostics()` | `compozy doctor -o json` |
+
+There is **no `compozy daemon status`**. `compozy daemon` has exactly three subcommands — `bootstrap`,
+`start`, `stop` — and an invalid subcommand prints help and exits 0, so a check written against one
+reports success for a stopped daemon.
+
+`doctor` reports on the whole installation, including providers and extensions this skill never
+uses. **Treat only `daemon`, `provider:claude` and worktree categories as blocking**; an
+`extension_runtime_unavailable` for an unrelated extension is noise here.
+
+## Worktrees
+
+| Operation | Command |
+| --- | --- |
+| `create_worktree(name, branch, base)` | `compozy worktree create <name> --branch <branch> --base <base-ref> -o json` |
+| `list_worktrees()` | `compozy worktree list --refresh -o json` |
+| `inspect_worktree(ref)` | `compozy worktree inspect <ref> -o json` |
+| `worktree_status(ref)` | `compozy worktree status <ref> -o json` |
+| `cleanup_evidence(ref)` | `compozy worktree exit <ref> -o json` → the exit plan, including `cleanup.safe` |
+| `remove_worktree(ref)` | `compozy worktree remove <ref> --force -o json` |
+
+**`create` accepts no setup flag.** Bootstrap comes from `[worktrees] setup_command` in
+`~/.compozy/config.toml`, not from the dispatch call. Its siblings there:
+
+```toml
+[worktrees]
+root = "/absolute/path"          # must be absolute; TOML does not expand $HOME
+run_branch_namespace = "run/"    # lowercase, slash-terminated
+copy_list = [".env"]             # paths inside the repo, never absolute
+setup_command = "..."            # the project's bootstrap
+setup_timeout = "10m"
+discovery_cache_ttl = "30s"
+```
+
+`root` defaults to `~/worktrees` — not `~/.compozy/worktrees`. A literal `$HOME/...` string fails
+validation, because it is not an absolute path and TOML performs no expansion.
+
+**A failed `setup_command` is not a failed worktree.** The checkout stays `ready` while
+`setup_state` becomes `"failed"` with `setup_error` set. Poll the project's own bootstrap marker
+(`project.bootstrap_marker` in `.orchestrate-project.json`) rather than trusting creation alone.
+
+**Lifecycle states**: `pending` → `ready`, then `failed`, `missing`, `removing`, `removed`,
+`dismissed`. Only `ready` accepts a session.
+
+**`--force` on `remove` confirms a destructive removal.** Read `cleanup_evidence` first and continue
+only when `cleanup.safe` is true. Removal deletes the linked checkout, never the branch or history.
+
+## Dispatch
+
+| Operation | Command |
+| --- | --- |
+| `spawn(agent, worktree, prompt, provider, model, effort)` | `compozy spawn --agent <agent> --ttl-seconds <n> --workspace <worktree-path> --provider claude --model <model> --reasoning-effort <effort> --prompt-overlay "<prompt>" --name <ITEM-REF> -o json` |
+
+- **`--ttl-seconds` is mandatory.** There is no default; omitting it is an error. Size it to the
+  item, and remember an expired TTL stops a child mid-work.
+- **`--provider`, `--model` and `--reasoning-effort` are the tier assertion.** This is what
+  AD-023 lacked under the previous runtime, which accepted no model flag and forced either a
+  machine-default mutation or a corruption-prone terminal path. Set the tier here and compare it
+  against what resolved; never read the machine default and never change it.
+- **`--provider claude` only.** Compozy's release notes claim end-to-end delivery for Claude Code
+  and Hermes; no other provider is dispatched to.
+- `--auto-stop-on-parent` defaults true. For an implementer that must outlive the orchestrating
+  session, set it false deliberately.
+- Grants are explicit and repeatable: `--tool`, `--skill`, `--mcp-server`, `--sandbox-profile`,
+  `--workspace-path`, `--channel`.
+
+## Monitoring
+
+| Operation | Command |
+| --- | --- |
+| `sessions_for(worktree_id)` | `compozy session list --worktree <worktree-id> --include-health -o json` |
+| `session_state(id)` | `compozy session inspect <id> -o json` |
+| `session_health(id)` | `compozy session health <id> -o json` |
+| `read_logs(session)` | `compozy logs --session <id> --last <n> -o json` |
+
+**Liveness is a reported state, never an inference.** `--state` takes `starting`, `active`,
+`stopping`, `stopped`; `--attention` filters to sessions needing an operator. Do not count
+terminals, do not grep a transcript, and do not treat process existence as progress — the previous
+runtime forced all three, and misreading them cost the reference run about eight hours.
+
+`--worktree <id>` is the binding between a dispatched item and its session. Filter on it rather
+than matching display names.
+
+`compozy logs --follow` streams over SSE. Prefer `--last` for a bounded read; a follow that is never
+closed holds the session open.
+
+## The wave graph
+
+| Operation | Command |
+| --- | --- |
+| `task_create(item)` | `compozy task create --title "<title>" --identifier <ITEM-REF> --auto-enqueue-on-ready -o json` |
+| `task_depends_on(task, blocker)` | `compozy task dependency add <task-id> --depends-on <blocker-task-id> -o json` |
+| `task_list()` | `compozy task list -o json` |
+| `task_inspect(id)` | `compozy task inspect <id> -o json` |
+
+**This is a tracking view, not the release gate.** A task marked complete records what an
+implementer *claimed*; a claim is not a pushed branch. Wave release is decided by this skill's own
+confirmation that the pull request has left draft and its head branch exists on the remote — never
+by a task's state here.
+
+`--auto-enqueue-on-ready` enqueues a run once blocking dependencies complete. That is a scheduling
+convenience inside Compozy; it never substitutes for the release gate above.
+
+## What this file deliberately does not use
+
+`compozy worktree pr`, `worktree push` and `worktree commit` exist. **The orchestrator calls none of
+them.** Implementers push their own branches from inside their own worktrees, and the two
+zero-exception boundaries stand unchanged: never merge a pull request, never push to `main`. A
+convenience command that crosses either boundary is still a crossing.

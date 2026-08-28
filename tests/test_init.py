@@ -26,6 +26,42 @@ sys.path.insert(0, os.path.join(paths.PLUGIN_DIR, "scripts"))
 import init  # noqa: E402
 
 
+@contextlib.contextmanager
+def stubbed_runtime(
+    version="compozy 0.3.0-beta.21", tracker_ok=True, daemon=True, binary=True
+):
+    """Replace every external call with a scripted answer.
+
+    Without this the suite shells out to `gh auth status` and a live Compozy
+    daemon on roughly a dozen tests, which took 151 seconds and made the result
+    depend on network reachability and on whether a daemon happened to be
+    running. A structural assertion should not need either. One integration
+    test below still exercises the real binary.
+    """
+
+    def fake_run(argv):
+        if argv[:2] == [init.RUNNER, "version"]:
+            return (0, version) if version else (1, "")
+        if argv[:2] == [init.RUNNER, "status"]:
+            return (0, '{"daemon": {"status": "running"}}') if daemon else (1, "{}")
+        if argv[:2] == [init.RUNNER, "doctor"]:
+            return 0, "{}"
+        return (0, "") if tracker_ok else (1, "not authenticated")
+
+    original_run, original_which = init._run, shutil.which
+    original_home = os.path.expanduser
+    try:
+        init._run = fake_run
+        shutil.which = lambda name: f"/usr/bin/{name}" if binary else None
+        os.path.expanduser = lambda path: (
+            __file__ if path == "~/.compozy/config.toml" else original_home(path)
+        )
+        yield
+    finally:
+        init._run, shutil.which = original_run, original_which
+        os.path.expanduser = original_home
+
+
 class ShippedTrackers(unittest.TestCase):
     def test_derives_the_offered_set_from_the_shipped_documents(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,7 +115,8 @@ class ShippedTrackers(unittest.TestCase):
 
 class TrackerProbe(unittest.TestCase):
     def test_reports_the_command_it_ran(self):
-        result = init.probe_tracker("github")
+        with stubbed_runtime():
+            result = init.probe_tracker("github")
         self.assertEqual(result["command"], "gh auth status")
 
     def test_a_missing_executable_is_a_failure_not_a_crash(self):
@@ -244,7 +281,7 @@ class CommandLine(unittest.TestCase):
     def test_probe_emits_parseable_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()
-            with contextlib.redirect_stdout(out):
+            with stubbed_runtime(), contextlib.redirect_stdout(out):
                 init.main(["--root", tmp, "probe", "-o", "json"])
             report = json.loads(out.getvalue())
             for key in (
@@ -260,7 +297,7 @@ class CommandLine(unittest.TestCase):
     def test_probe_writes_no_file(self):
         """OPP-12: the discovery pass is read-only."""
         with tempfile.TemporaryDirectory() as tmp:
-            with contextlib.redirect_stdout(io.StringIO()):
+            with stubbed_runtime(), contextlib.redirect_stdout(io.StringIO()):
                 init.main(["--root", tmp, "probe", "-o", "json"])
             self.assertEqual(os.listdir(tmp), [])
 
@@ -490,7 +527,7 @@ class PluginVersionReporting(unittest.TestCase):
         """OPP-60: reported alongside the resolved tracker."""
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()
-            with contextlib.redirect_stdout(out):
+            with stubbed_runtime(), contextlib.redirect_stdout(out):
                 init.main(["--root", tmp, "probe", "-o", "json"])
             self.assertEqual(
                 json.loads(out.getvalue())["plugin_version"], init.plugin_version()
@@ -499,7 +536,7 @@ class PluginVersionReporting(unittest.TestCase):
     def test_human_output_names_the_plugin_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()
-            with contextlib.redirect_stdout(out):
+            with stubbed_runtime(), contextlib.redirect_stdout(out):
                 init.main(["--root", tmp, "probe"])
             self.assertIn(f"plugin {init.plugin_version()}", out.getvalue())
 
@@ -580,15 +617,10 @@ class VersionCommandRegression(unittest.TestCase):
         self.assertEqual(init.compare_pin("garbage output", "v0.3.0-beta.21"), "unknown")
 
     def test_a_present_runner_with_no_readable_version_is_flagged(self):
-        original = init.VERSION_COMMAND
-        try:
-            init.VERSION_COMMAND = ["definitely-not-a-real-binary-xyz"]
-            if shutil.which(init.RUNNER):
-                result = init.probe_runner("v0.3.0-beta.21")
-                self.assertIsNone(result["version"])
-                self.assertIn("unverified", result["advice"])
-        finally:
-            init.VERSION_COMMAND = original
+        with stubbed_runtime(version=None):
+            result = init.probe_runner("v0.3.0-beta.21")
+        self.assertIsNone(result["version"])
+        self.assertIn("unverified", result["advice"])
 
 
 class VersionNormalization(unittest.TestCase):
@@ -614,7 +646,8 @@ class RunnerReadinessChain(unittest.TestCase):
     reported as an ordered chain because each stage gates the next."""
 
     def test_stages_are_reported_in_dependency_order(self):
-        names = [st["stage"] for st in init.probe_runner_stages()]
+        with stubbed_runtime():
+            names = [st["stage"] for st in init.probe_runner_stages(deep=True)]
         expected = ["binary", "version", "bootstrap", "daemon", "doctor"]
         self.assertEqual(names, expected[: len(names)])
 
@@ -639,7 +672,8 @@ class RunnerReadinessChain(unittest.TestCase):
             shutil.which = original
 
     def test_blocking_stage_is_named_rather_than_left_to_inference(self):
-        result = init.probe_runner("v0.3.0-beta.21")
+        with stubbed_runtime():
+            result = init.probe_runner("v0.3.0-beta.21")
         self.assertIn("blocking_stage", result)
         self.assertIn("ready", result)
         if result["ready"]:
@@ -686,15 +720,15 @@ class HumanOutput(unittest.TestCase):
 
     def _probe(self, root):
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with stubbed_runtime(), contextlib.redirect_stdout(out):
             init.main(["--root", root, "probe"])
         return out.getvalue()
 
     def test_every_stage_is_printed(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = self._probe(tmp)
-            for stage in init.probe_runner_stages():
-                self.assertIn(stage["stage"], text)
+            for name in ("binary", "version", "bootstrap", "daemon"):
+                self.assertIn(name, text)
 
     def test_the_summary_states_whether_the_runner_is_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -705,10 +739,32 @@ class HumanOutput(unittest.TestCase):
             )
 
     def test_a_failing_stage_prints_its_next_command(self):
-        original = shutil.which
-        try:
-            shutil.which = lambda _name: None
-            with tempfile.TemporaryDirectory() as tmp:
-                self.assertIn("next:", self._probe(tmp))
-        finally:
-            shutil.which = original
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with stubbed_runtime(binary=False), contextlib.redirect_stdout(out):
+                init.main(["--root", tmp, "probe"])
+            self.assertIn("next:", out.getvalue())
+
+
+class LiveRuntimeIntegration(unittest.TestCase):
+    """The one test that touches the real binary. Everything else is stubbed, so
+    this is where a genuine mismatch between our commands and the installed
+    Compozy would surface."""
+
+    def setUp(self):
+        if not shutil.which(init.RUNNER):
+            self.skipTest("compozy is not installed on this machine")
+
+    def test_the_real_version_command_returns_a_parseable_token(self):
+        code, out = init._run(init.VERSION_COMMAND)
+        self.assertEqual(code, 0, f"{' '.join(init.VERSION_COMMAND)} failed: {out}")
+        self.assertIsNotNone(
+            init.normalize_version(out),
+            f"no version token in {out!r}",
+        )
+
+    def test_the_real_daemon_status_command_is_valid(self):
+        """An invalid subcommand prints help and exits 0, so assert on content."""
+        code, out = init._run(init.DAEMON_STATUS_COMMAND)
+        self.assertEqual(code, 0)
+        self.assertIn("daemon", out)

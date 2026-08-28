@@ -193,12 +193,17 @@ def _stage(name, ok, detail, command=None):
     return {"stage": name, "ok": ok, "detail": detail, "suggested_command": command}
 
 
-def probe_runner_stages(pin=None):
+def probe_runner_stages(pin=None, deep=False):
     """Every prerequisite between a bare machine and a dispatchable runtime.
 
     Reported as an ordered chain because each stage gates the next: a daemon
     cannot start before bootstrap, and doctor cannot run before the daemon. The
     first failure is the only one worth acting on.
+
+    `doctor` runs only under deep=True. It takes seconds and reports on the
+    whole installation, most of which this skill never touches, so paying for it
+    on every probe would make the common path slow for information the operator
+    did not ask for.
     """
     stages = []
 
@@ -249,7 +254,7 @@ def probe_runner_stages(pin=None):
             None if running else (_suggested_command(out) or f"{RUNNER} daemon start"),
         )
     )
-    if not running:
+    if not running or not deep:
         return stages
 
     code, out = _run([RUNNER, "doctor", "-o", "json"])
@@ -260,9 +265,9 @@ def probe_runner_stages(pin=None):
     return stages
 
 
-def probe_runner(pin=None):
+def probe_runner(pin=None, deep=False):
     """Report Compozy's presence and version. Absence is a fact, not an error."""
-    stages = probe_runner_stages(pin)
+    stages = probe_runner_stages(pin, deep=deep)
     blocking = next((st for st in stages if not st["ok"]), None)
     if not shutil.which(RUNNER):
         return {
@@ -439,7 +444,7 @@ def cmd_probe(args):
     report = {
         "shipped_trackers": trackers,
         "tracker_probes": [probe_tracker(name) for name in trackers],
-        "runner": probe_runner(args.pin),
+        "runner": probe_runner(args.pin, deep=args.deep),
         "gate_candidates": detect_gate_commands(args.root),
         "constitution_candidates": detect_constitutions(args.root),
         "config_exists": config is not None,
@@ -588,6 +593,11 @@ def main(argv=None):
     p = sub.add_parser("probe", help="Report what is true; write nothing")
     p.add_argument("-o", "--output", default="human", choices=["human", "json"])
     p.add_argument("--pin", default=None, help="Compozy version to compare against")
+    p.add_argument(
+        "--deep",
+        action="store_true",
+        help="Also run compozy doctor (seconds, whole-installation scope)",
+    )
     p.set_defaults(fn=cmd_probe)
 
     p = sub.add_parser("write", help="Write the repository configuration")
