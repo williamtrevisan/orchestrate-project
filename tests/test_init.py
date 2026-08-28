@@ -115,7 +115,9 @@ class RunnerProbe(unittest.TestCase):
         original = shutil.which
         try:
             shutil.which = lambda _name: None
-            self.assertIsNone(init.probe_runner("v0.3.0-beta.21")["matches_pin"])
+            self.assertEqual(
+                init.probe_runner("v0.3.0-beta.21")["pin_state"], "unknown"
+            )
         finally:
             shutil.which = original
 
@@ -420,3 +422,83 @@ class WriteSubcommand(unittest.TestCase):
                 code = init.main(["--root", tmp, "status"])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(out.getvalue())["tracker"], "github")
+
+
+class PinComparison(unittest.TestCase):
+    def test_either_side_missing_is_unknown_not_a_match(self):
+        self.assertEqual(init.compare_pin(None, "v0.3.0-beta.21"), "unknown")
+        self.assertEqual(init.compare_pin("v0.3.0-beta.21", None), "unknown")
+
+    def test_an_exact_pin_inside_the_version_string_matches(self):
+        self.assertEqual(
+            init.compare_pin("compozy version v0.3.0-beta.21", "v0.3.0-beta.21"),
+            "match",
+        )
+
+    def test_a_different_build_is_drift(self):
+        self.assertEqual(
+            init.compare_pin("compozy version v0.3.0-beta.24", "v0.3.0-beta.21"),
+            "drift",
+        )
+
+    def test_drift_is_not_resolved_silently(self):
+        """A bump is a re-verification trigger: the flags were read from one
+        specific build, so drift must surface rather than be tolerated."""
+        self.assertNotEqual(
+            init.compare_pin("v0.3.0-beta.24", "v0.3.0-beta.21"), "match"
+        )
+
+
+class PrereleaseDetection(unittest.TestCase):
+    def test_a_beta_is_a_prerelease(self):
+        self.assertTrue(init.is_prerelease("v0.3.0-beta.21"))
+
+    def test_a_stable_release_is_not(self):
+        self.assertFalse(init.is_prerelease("v1.0.0"))
+
+    def test_build_metadata_alone_is_not_a_prerelease(self):
+        self.assertFalse(init.is_prerelease("v1.0.0+build.5"))
+
+    def test_an_absent_version_is_not_a_prerelease(self):
+        self.assertFalse(init.is_prerelease(None))
+
+
+class RunnerAdvice(unittest.TestCase):
+    def test_absence_advises_installing_rather_than_writing_a_false_config(self):
+        original = shutil.which
+        try:
+            shutil.which = lambda _name: None
+            result = init.probe_runner("v0.3.0-beta.21")
+            self.assertIn("not installed", result["advice"])
+            self.assertIn("claims a working runner", result["advice"])
+        finally:
+            shutil.which = original
+
+    def test_absence_still_names_the_install_command(self):
+        original = shutil.which
+        try:
+            shutil.which = lambda _name: None
+            self.assertEqual(
+                init.probe_runner()["install_command"], init.INSTALL_COMMAND
+            )
+        finally:
+            shutil.which = original
+
+
+class PluginVersionReporting(unittest.TestCase):
+    def test_probe_reports_the_plugin_version(self):
+        """OPP-60: reported alongside the resolved tracker."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                init.main(["--root", tmp, "probe", "-o", "json"])
+            self.assertEqual(
+                json.loads(out.getvalue())["plugin_version"], init.plugin_version()
+            )
+
+    def test_human_output_names_the_plugin_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                init.main(["--root", tmp, "probe"])
+            self.assertIn(f"plugin {init.plugin_version()}", out.getvalue())

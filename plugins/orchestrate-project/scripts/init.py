@@ -36,6 +36,7 @@ import sys
 
 CONFIG_NAME = ".orchestrate-project.json"
 RUNNER = "compozy"
+INSTALL_COMMAND = "curl -fsSL https://compozy.com/install.sh | sh"
 
 #: The plugin root - this script lives in <plugin>/scripts/.
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -121,6 +122,28 @@ def probe_tracker(name):
     }
 
 
+def is_prerelease(version):
+    """True when a version string carries a prerelease identifier.
+
+    Compozy has shipped only prereleases - 21 of them in under two months - so
+    a pin is a moving target rather than a stable contract. Saying so is the
+    honest default until a stable release exists.
+    """
+    return bool(version) and "-" in version.split("+", 1)[0]
+
+
+def compare_pin(version, pin):
+    """How an installed version relates to the pin the flags were captured at.
+
+    Returns one of: 'unknown' (either side missing), 'match', or 'drift'. Drift
+    is never resolved silently - it is a re-verification trigger, because the
+    documented flags were read from one specific build.
+    """
+    if not version or not pin:
+        return "unknown"
+    return "match" if pin in version else "drift"
+
+
 def probe_runner(pin=None):
     """Report Compozy's presence and version. Absence is a fact, not an error."""
     if not shutil.which(RUNNER):
@@ -128,17 +151,38 @@ def probe_runner(pin=None):
             "present": False,
             "version": None,
             "pin": pin,
-            "matches_pin": None,
-            "install_command": "curl -fsSL https://compozy.com/install.sh | sh",
+            "pin_state": "unknown",
+            "prerelease": is_prerelease(pin),
+            "install_command": INSTALL_COMMAND,
+            "advice": (
+                f"{RUNNER} is not installed. Dispatch cannot run until it is; "
+                "install it yourself rather than having this write a config that "
+                "claims a working runner."
+            ),
         }
     code, out = _run([RUNNER, "--version"])
     version = out.splitlines()[0].strip() if code == 0 and out else None
+    state = compare_pin(version, pin)
+    advice = None
+    if state == "drift":
+        advice = (
+            f"installed {version} but references/runner.md was captured at {pin}. "
+            "Re-capture the command table from --help before dispatching; a flag "
+            "may have moved."
+        )
+    elif is_prerelease(version):
+        advice = (
+            f"{version} is a prerelease. The runtime is unstable: a version bump "
+            "is a re-verification trigger, not an automatic upgrade."
+        )
     return {
         "present": True,
         "version": version,
         "pin": pin,
-        "matches_pin": None if (pin is None or version is None) else (pin in version),
+        "pin_state": state,
+        "prerelease": is_prerelease(version),
         "install_command": None,
+        "advice": advice,
     }
 
 
@@ -272,6 +316,7 @@ def cmd_probe(args):
         "config_exists": config is not None,
         "config": config,
         "config_error": config_error,
+        "plugin_version": plugin_version(),
     }
     if args.output == "json":
         print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -288,16 +333,24 @@ def _print_human(report):
         detail = "" if probe["ok"] else f" - {probe['stderr']}"
         print(f"  {mark}  {probe['tracker']:<8} {probe['command']}{detail}")
     runner = report["runner"]
-    if runner["present"]:
-        print(f"  ok    {RUNNER}   {runner['version']}")
-    else:
+    if not runner["present"]:
         print(f"  WARN  {RUNNER}   not installed - {runner['install_command']}")
+    elif runner["pin_state"] == "drift":
+        print(f"  WARN  {RUNNER}   {runner['version']} (pinned {runner['pin']})")
+    else:
+        print(f"  ok    {RUNNER}   {runner['version']}")
+    if runner["advice"]:
+        print(f"        {runner['advice']}")
     gates = report["gate_candidates"]
     print(f"  info  gate     {len(gates)} manifest(s) found")
     docs = report["constitution_candidates"]
     print(f"  info  conventions {len(docs) or 'none'} candidate(s)")
     passing = sum(1 for p in report["tracker_probes"] if p["ok"])
-    print(f"\ninit: {passing}/{len(report['tracker_probes'])} tracker probe(s) passing")
+    version = report["plugin_version"]
+    print(
+        f"\ninit: {passing}/{len(report['tracker_probes'])} tracker probe(s) passing "
+        f"(plugin {version})"
+    )
 
 
 def cmd_write(args):
@@ -372,6 +425,12 @@ def _selftest():
         assert name in TRACKER_PROBES, f"no probe declared for shipped tracker {name}"
     absent = probe_runner("v0.0.0-none")
     assert absent["present"] in (True, False)
+    assert compare_pin(None, "v1") == "unknown"
+    assert compare_pin("v1.0.0", None) == "unknown"
+    assert compare_pin("compozy v0.3.0-beta.21", "v0.3.0-beta.21") == "match"
+    assert compare_pin("compozy v0.3.0-beta.24", "v0.3.0-beta.21") == "drift"
+    assert is_prerelease("v0.3.0-beta.21") is True
+    assert is_prerelease("v1.0.0") is False
     assert detect_gate_commands("/nonexistent-path-for-selftest") == []
     assert detect_constitutions("/nonexistent-path-for-selftest") == []
     assert missing_required({}) == ["gate_command"]
