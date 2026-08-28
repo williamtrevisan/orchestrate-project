@@ -120,7 +120,7 @@ runner: spawn(agent, worktree_path, prompt, provider, model, effort)
 
 **The tier is set here, explicitly, per item.** `spawn` takes provider, model and reasoning-effort
 overrides, so an analysis item runs on a high tier and an implementation item on the execution tier
-without touching any machine-wide default (AD-023). Two rules follow:
+without touching any machine-wide default ([D-5](decisions.md)). Two rules follow:
 
 - **Never read the machine default, and never change it.** The tier travels with the dispatch.
 - **Verify what resolved and abort the wave on a mismatch, in either direction.** An implementation
@@ -157,7 +157,7 @@ runner: sessions_for(worktree_id)   → state, health
 `mark_in_progress(item)` is the contract's one **optional** write. Call it only when the selected
 tracker's capability table declares it implemented. When the tracker declares it absent, call
 nothing and change nothing else: no wave number, no dispatch decision, no completion read and no
-release gate may depend on it having happened (AD-015).
+release gate may depend on it having happened ([D-2](decisions.md)).
 
 Never emulate it. A label, a comment, a body edit or a naming convention standing in for a real
 transition is forbidden — it makes two unlike things look alike, and the difference then surfaces

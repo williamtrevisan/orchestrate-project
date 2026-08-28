@@ -400,7 +400,7 @@ def plugin_version():
         return None
 
 
-def build_config(tracker, project, pin=None, today=None):
+def build_config(tracker, project, pin=None, today=None, tracker_config=None):
     """The configuration document, with every project key stated explicitly.
 
     An optional key the operator did not supply is written as null rather than
@@ -415,6 +415,7 @@ def build_config(tracker, project, pin=None, today=None):
         "plugin_version": plugin_version(),
         "initialized_at": stamp,
         "project": {key: project.get(key) for key in sorted(PROJECT_KEYS)},
+        "tracker_config": tracker_config or {},
     }
 
 
@@ -532,7 +533,20 @@ def cmd_write(args):
         print("init: probe failed; nothing written", file=sys.stderr)
         return 1
 
-    config = build_config(args.tracker, project, pin=args.pin, today=args.today)
+    tracker_config = {}
+    if args.tracker_config:
+        try:
+            tracker_config = json.loads(args.tracker_config)
+        except ValueError as err:
+            print(f"init: --tracker-config is not valid JSON: {err}", file=sys.stderr)
+            return 2
+        if not isinstance(tracker_config, dict):
+            print("init: --tracker-config must be a JSON object", file=sys.stderr)
+            return 2
+    config = build_config(
+        args.tracker, project, pin=args.pin, today=args.today,
+        tracker_config=tracker_config,
+    )
     path = os.path.join(args.root, CONFIG_NAME)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(config, handle, indent=2, ensure_ascii=False)
@@ -577,6 +591,7 @@ def _selftest():
     assert missing_required({"gate_command": "make test"}) == []
     sample = build_config("github", {"gate_command": "x"}, today="2026-01-01")
     assert set(sample["project"]) == set(PROJECT_KEYS)
+    assert sample["tracker_config"] == {}
     assert json.loads(json.dumps(sample)) == sample
     print("selftest_init: ok")
     return 0
@@ -606,6 +621,13 @@ def main(argv=None):
     p.add_argument("--gate-working-dir", default=None)
     p.add_argument("--bootstrap-marker", default=None)
     p.add_argument("--constitution-path", default=None)
+    p.add_argument(
+        "--tracker-config",
+        default=None,
+        help="JSON object of per-project tracker connection settings "
+             "(site, cloud id, workspace). Never a credential - reference the "
+             "environment variable that holds one instead.",
+    )
     p.add_argument("--pin", default=None, help="Compozy version this repo targets")
     p.add_argument("--today", default=None, help="Override the stamp (tests)")
     p.add_argument("--force", action="store_true")

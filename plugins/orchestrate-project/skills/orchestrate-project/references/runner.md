@@ -95,7 +95,7 @@ only when `cleanup.safe` is true. Removal deletes the linked checkout, never the
 - **`--ttl-seconds` is mandatory.** There is no default; omitting it is an error. Size it to the
   item, and remember an expired TTL stops a child mid-work.
 - **`--provider`, `--model` and `--reasoning-effort` are the tier assertion.** This is what
-  AD-023 lacked under the previous runtime, which accepted no model flag and forced either a
+  [D-5](decisions.md) lacked under the previous runtime, which accepted no model flag and forced either a
   machine-default mutation or a corruption-prone terminal path. Set the tier here and compare it
   against what resolved; never read the machine default and never change it.
 - **`--provider claude` only.** Compozy's release notes claim end-to-end delivery for Claude Code

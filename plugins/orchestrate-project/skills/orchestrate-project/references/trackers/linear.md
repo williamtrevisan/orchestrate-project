@@ -76,14 +76,25 @@ against which branch — is unverified.
 ### `mark_in_progress(item)` — optional
 
 Linear can move an issue into a started state, so an implementation may declare this one implemented.
-It may equally leave it absent. Under AD-015 the orchestrator behaves identically either way, and
+It may equally leave it absent. Under [D-2](../decisions.md) the orchestrator behaves identically either way, and
 nothing downstream may depend on it having happened.
+
+**Connection.** An example configuration block, with placeholder values only:
+
+```json
+{ "tracker_config": { "linear": { "workspace": "acme", "api_key_env": "LINEAR_API_KEY" } } }
+```
+
+The Linear workspace and API credential are **per project**, read from
+`tracker_config.linear` in that repository's `.orchestrate-project.json`. This skill carries
+neither, and never stores the credential itself — only a reference to where the environment holds
+it.
 
 ## Transport
 
 **Linear's GraphQL API directly.** The alternative was a runtime-provided Linear CLI; that runtime
 is gone, and depending on any dispatch tool for a read path that has nothing to do with worktrees
-would re-couple the tracker layer to the runner — exactly the boundary AD-012 exists to hold.
+would re-couple the tracker layer to the runner — exactly the boundary [D-1](../decisions.md) exists to hold.
 
 The transport is recorded here, in this file, and nowhere else. A phase never learns it.
 

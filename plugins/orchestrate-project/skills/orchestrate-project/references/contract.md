@@ -105,7 +105,7 @@ Return whether the item's work is finished.
 - **Completion must not be settable ahead of the work.** Where a tracker's own state is something a
   human can set by hand before the work exists, the tracker conjoins it with a fact nobody sets by
   hand. Each tracker states its exact rule in its own document.
-- Completion is **not** the wave-release gate on its own, and under AD-021 it is not the gate at
+- Completion is **not** the wave-release gate on its own, and under [D-3](decisions.md) it is not the gate at
   all — the stack releases on a confirmed open PR ([Phase 5](advance.md)). `read_completion` still
   reports honestly for the final merge report and for external blockers, which no stack contains.
 
@@ -133,7 +133,7 @@ Which means:
 - **Never gate on its result.** If a declared implementation fails, log it and continue. A
   board-side annotation is not worth stopping real work over.
 
-Recorded as a project-level decision: AD-015. Any future capability the orchestrator cannot rely on
+Recorded as a project-level decision: [D-2](decisions.md). Any future capability the orchestrator cannot rely on
 everywhere is declared optional the same way, never modelled as required and never faked.
 
 ## Failure rule, shared by every operation

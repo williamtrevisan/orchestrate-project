@@ -8,8 +8,16 @@ tracker subcommand, and no tracker flag on worktree creation — which is the po
 reference travels in the worktree name and the dispatch record, and every tracker read and write
 goes through [the contract](../contract.md).
 
-**Connection.** Site `melhorenvio.atlassian.net`, cloud id
-`596ba6a1-ddcc-4ecd-ad66-da939db49b46`. Use the Streamable HTTP endpoint
+**Connection.** The Atlassian site and cloud id are **per project** and live in
+`tracker_config.jira` in that repository's `.orchestrate-project.json`:
+
+```json
+{ "tracker_config": { "jira": { "site": "<your-site>.atlassian.net", "cloud_id": "<uuid>" } } }
+```
+
+This skill carries neither value. A hardcoded site identifies one tenant and is wrong for every
+other, and a cloud id in a shared file is someone's infrastructure detail travelling further than
+they agreed to. Use the Streamable HTTP endpoint
 `https://mcp.atlassian.com/v1/mcp` — the HTTP+SSE endpoint (`/v1/sse`) is unsupported after
 30 June 2026.
 
@@ -34,7 +42,7 @@ contract, and this document is what the contract resolves to when the Jira track
 
 | Contract operation | Jira implementation | Rules that govern it |
 | --- | --- | --- |
-| `resolve_group(identifier)` | An Epic, from its key (`INT-1131`) or its browse URL. Its description is read verbatim and honoured as authored | [Resolve the Epic and its children](#resolve-the-epic-and-its-children) |
+| `resolve_group(identifier)` | An Epic, from its key (`EXAMPLE-1821`) or its browse URL. Its description is read verbatim and honoured as authored | [Resolve the Epic and its children](#resolve-the-epic-and-its-children) |
 | `list_items(group)` | `searchJiraIssuesUsingJql` on `parent = "<KEY>"`, one page, `maxResults` 100. The item's human reference is its issue key; its `kind` is `issuetype` | rules [1](#1-always-quote-the-project-key-in-jql) and the [single-page rule](#resolve-the-epic-and-its-children), [rate limits](#rate-limits) |
 | `read_blockers(item)` | `issuelinks` filtered to `type.name == "Blocks"`: `inward` blocks this item, `outward` is blocked by it. A target outside the child set is an external blocker | [Read the dependency graph](#read-the-dependency-graph), and *never infer a dependency from prose* |
 | `read_completion(item)` | `statusCategory.key == "done"`, never a status name. Status categories are set by the workflow, not typed by hand, which is why this tracker needs no second fact to conjoin | rule [2](#2-done-is-statuscategorykey-never-a-status-name) |
@@ -42,7 +50,7 @@ contract, and this document is what the contract resolves to when the Jira track
 
 The contract requires that the orchestrator run identically whether a tracker implements
 `mark_in_progress` or declares it absent. This tracker implements it; nothing downstream may
-depend on that (AD-015).
+depend on that ([D-2](../decisions.md)).
 
 ### Behaviours the contract does not express
 
@@ -120,7 +128,7 @@ expand scope. This applies identically to humans, agents and bots.
   content is the completion comment below.
 - **Never create issues, Epics or links.** Authoring the dependency graph is a human act; a missing
   `Blocks` link is surfaced as a discrepancy, not created.
-- **Never infer a dependency from prose.** "Depends on INT-1964" in a description is not a
+- **Never infer a dependency from prose.** "Depends on EXAMPLE-1821" in a description is not a
   dependency unless a `Blocks` link exists.
 
 ---
@@ -129,11 +137,11 @@ expand scope. This applies identically to humans, agents and bots.
 
 ### Resolve the Epic and its children
 
-Accept an Epic key (`INT-1131`) or a browse URL
-(`https://melhorenvio.atlassian.net/browse/INT-1131`), extracting the key from the URL.
+Accept an Epic key (`EXAMPLE-1821`) or a browse URL
+(`https://<your-site>.atlassian.net/browse/EXAMPLE-1131`), extracting the key from the URL.
 
 ```
-parent = "INT-1131" AND statusCategory != Done ORDER BY created ASC
+parent = "EXAMPLE-1821" AND statusCategory != Done ORDER BY created ASC
 ```
 
 Read the whole child set in one page (`maxResults` 100, the API ceiling). Never compute a wave
@@ -154,13 +162,13 @@ A blocker that is not among the Epic's children is an **external blocker**: fetc
 Epics deliberately span disciplines and repositories. Verified live:
 
 ```
-INT-1821  [Tracker]  Incluir transportadora Azul Cargo no MI      → tray-native
-INT-1822  [Frontend] Incluir transportadora azul cargo no MI app  → melhor-integrador-app
-                     ↑ is blocked by INT-1821
+EXAMPLE-1821  [Tracker]  Incluir transportadora Azul Cargo no MI      → <another-project>
+EXAMPLE-1821  [Frontend] Incluir transportadora azul cargo no MI app  → melhor-integrador-app
+                     ↑ is blocked by EXAMPLE-1821
 ```
 
 **Labels are the primary signal, the summary prefix is the fallback.** Neither alone is enough —
-verified against Epic `INT-1526`, whose 18 children include `['Tracker']`, `['tracker']`,
+verified against Epic `EXAMPLE-1821`, whose 18 children include `['Tracker']`, `['tracker']`,
 `['tracker','frontend']`, `['Front-end']`, `['UXDesign']`, `['!QA']` and `[]`.
 
 Apply this precedence in order and stop at the first match:
@@ -168,7 +176,7 @@ Apply this precedence in order and stop at the first match:
 | # | Condition | Outcome |
 | --- | --- | --- |
 | 1 | labels contain `tracker` and no frontend-ish label | **Dispatchable** |
-| 2 | labels contain `tracker` **and** a frontend-ish label (`frontend`, `Front-end`) | **Surface in the clarify batch** — the ticket genuinely spans both (e.g. `INT-1883`) |
+| 2 | labels contain `tracker` **and** a frontend-ish label (`frontend`, `Front-end`) | **Surface in the clarify batch** — the ticket genuinely spans both (e.g. `EXAMPLE-1821`) |
 | 3 | labels contain only another discipline (`Front-end`, `UXDesign`, `QA`, `!QA`) | Out of scope |
 | 4 | **no labels at all** → fall back to the summary prefix, case-insensitively:<br>`[Tracker]` / `[MI-Tracker]` → dispatchable, **surfaced for confirmation**<br>`[Frontend]` / `[QA]` / `[Devops]` / `[Design]` / `[Exploração]` / `[Produto]` → out of scope | as stated |
 | 5 | neither signal is present | **Surface in the clarify batch** |
@@ -176,8 +184,8 @@ Apply this precedence in order and stop at the first match:
 Label matching is **case-insensitive**, and JQL handles that for free — `labels = "Tracker"` matches
 a ticket labelled `tracker` (verified). Do not special-case casing.
 
-Row 4 is load-bearing, not a corner case: `INT-1821`, `INT-1822`, `INT-1888` and `INT-1889` all
-carry **no labels at all**, and `INT-1821` is a genuine tracker ticket. Treating the prefix as a
+Row 4 is load-bearing, not a corner case: `EXAMPLE-1821`, `EXAMPLE-1821`, `EXAMPLE-1821` and `EXAMPLE-1821` all
+carry **no labels at all**, and `EXAMPLE-1821` is a genuine tracker ticket. Treating the prefix as a
 mere hint would silently skip real work.
 
 `components` (`Compra Automatizada`, `Webhooks`) are domain context for the dispatch prompt and
@@ -185,10 +193,10 @@ mere hint would silently skip real work.
 
 Two further cases that must be handled rather than assumed away:
 
-- **The label denotes discipline, not repository.** `INT-1960 [Tracker] Criar rota para obter logs
+- **The label denotes discipline, not repository.** `EXAMPLE-1821 [Tracker] Criar rota para obter logs
   no serviço de webhooks` carries `Tracker` but targets the webhooks service. When a ticket's text
   names another service or app, surface it in the clarify batch — never dispatch it.
-- **Older Epics predate the convention.** `INT-1131` has 30 children and one label between them.
+- **Older Epics predate the convention.** `EXAMPLE-1821` has 30 children and one label between them.
   If no child carries `Tracker`, report the Epic as unscopeable and stop; dispatching all 30 would
   be far worse than refusing.
 
@@ -229,7 +237,7 @@ branch_prefix(key) → "fix"   when issuetype is Bug or Sustentação
 ```
 
 Derived from `issuetype`, which is structured data on every issue — never inferred from the
-summary or description. Feeds the remote branch name `<prefix>/<TICKET-KEY>`, e.g. `fix/INT-1965`.
+summary or description. Feeds the remote branch name `<prefix>/<TICKET-KEY>`, e.g. `fix/EXAMPLE-1821`.
 
 ---
 

@@ -45,7 +45,7 @@ Once the cycle check clears:
 An item with **two or more** in-group blockers is a **fan-in** item and is flagged as such — it is
 never silently grouped with single-blocker items.
 
-Its wave is still `max(...) + 1`. Under AD-021 the linearization in section 2.5 is what satisfies
+Its wave is still `max(...) + 1`. Under [D-3](decisions.md) the linearization in section 2.5 is what satisfies
 it: the item is cut from a chain that already contains every one of its parents, so there is no
 partial-satisfaction case at dispatch time. **The flag still matters** — it is what tells section
 2.5 which items constrain the chain, and a fan-in item whose chain does not cover all its parents
@@ -146,7 +146,7 @@ runner: task_depends_on(task, blocker_task)      → one call per blocker
 This gives the run a tracked DAG the whole team can read, and a place for completion to land.
 
 **The task list is a tracking view, not the release gate.** A task is marked complete on what an
-implementer *reports*, and a report is a claim. Under AD-021 the release signal is the pull request
+implementer *reports*, and a report is a claim. Under [D-3](decisions.md) the release signal is the pull request
 leaving draft — often the same moment — but the two are still not the same fact: the release gate is
 the pull request **and its pushed head branch, read back from the forge**. Dispatching a dependent
 against a base branch that was never pushed produces a worktree cut from nothing.

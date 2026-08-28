@@ -8,7 +8,9 @@ already installed and authenticated for the repository this skill runs in.
 
 **Connection.** The repository is `<owner>/<repo>`, taken from the run's own checkout
 (`gh repo view --json owner,name`). The default branch comes from the same call and is not assumed
-to be `main`.
+to be `main`. Nothing here is configured: GitHub is the one tracker whose connection is implied by
+the checkout, so its `tracker_config` block in `.orchestrate-project.json` is empty and the skill
+never carries an organisation or repository name of its own.
 
 ## Capability table
 
@@ -39,7 +41,7 @@ Three identifier forms, all landing on the same milestone.
 | Form | Example | How |
 | --- | --- | --- |
 | Number | `3` | `gh api repos/{owner}/{repo}/milestones/3` |
-| URL | `https://github.com/melhorenvio/shopify-envios/milestone/3` | Take the trailing path segment as the number, then resolve as above |
+| URL | `https://github.com/acme/example-repo/milestone/3` | Take the trailing path segment as the number, then resolve as above |
 | Title | `Schema adoption` | List and match exactly |
 
 ```bash
@@ -164,7 +166,7 @@ complete(item) = item.state == "closed"
 **Both halves are required.** A closed issue on its own is a state someone set by hand: closed as
 not-planned, closed by mistake, closed because a comment said it was done. The contract requires
 completion to be conjoined with a fact nobody sets by hand, and a merged pull request is that fact.
-This is the same merge-gated rule the Jira path expresses through its own workflow (AD-006): an
+This is the same merge-gated rule the Jira path expresses through its own workflow ([D-3](../decisions.md)): an
 issue closed with no merged pull request is **not complete**, and its dependents stay blocked.
 
 `baseRefName` is compared against the repository's actual default branch, read once at preflight —
@@ -187,7 +189,7 @@ graph is not, and making wave computation depend on a Projects v2 field would pu
 orchestration behind a scope that the contract's four reads do not need.
 
 The rejected alternative was a label — `in-progress`, applied at dispatch and removed at merge.
-Rejected under AD-015: it would make a label convention and a real workflow transition look like the
+Rejected under [D-2](../decisions.md): it would make a label convention and a real workflow transition look like the
 same capability, and the difference would surface only during a live run. Faking a capability is
 worse than not having one.
 
@@ -230,21 +232,21 @@ merge reports a blocker as open forever.
 
 ## Verified against this repository
 
-Every command above was executed once against `melhorenvio/shopify-envios` on 2026-08-20, read-only.
+Every command above was executed once against a real private repository on 2026-08-20, read-only.
 The repository held **0 milestones, 0 issues and one merged pull request** at the time, so the reads
 that need a graph returned empty — recorded here as they actually came back, not as they would look
 against a seeded repository.
 
 | Command | Real output |
 | --- | --- |
-| `gh repo view melhorenvio/shopify-envios --json defaultBranchRef,name,owner` | `{"defaultBranchRef":{"name":"main"},"name":"shopify-envios","owner":{...,"login":"melhorenvio"}}` |
+| `gh repo view <owner>/<repo> --json defaultBranchRef,name,owner` | `{"defaultBranchRef":{"name":"main"},"name":"<repo>","owner":{...,"login":"<owner>"}}` |
 | `gh api "repos/.../milestones?state=all&per_page=100"` | `[]` |
 | `gh api "repos/.../milestones?state=all&per_page=100" --jq '.[] \| select(.title == "Schema adoption") \| .number'` | empty, exit 0 — the shape a title that matches nothing produces |
 | `gh api "repos/.../milestones/1"` | `{"message":"Not Found",...,"status":"404"}`, exit 1 |
 | `gh api "repos/.../issues?milestone=1&state=all&per_page=100"` | `{"message":"Validation Failed","errors":[{"value":"1","resource":"Issue","field":"milestone","code":"invalid"}],"status":"422"}` — an unknown milestone is a 422, never an empty list |
 | `gh api "repos/.../issues?state=all&per_page=100"` | one element: pull request #1, carrying a `pull_request` object |
 | the same, `--jq '.[] \| select(.pull_request == null) \| {number,title,state,kind:.type.name}'` | empty — the filter removed the pull request, which is the whole reason it is there |
-| `gh api "repos/.../issues/1"` | pull request #1: `{"number":1,"title":"feat: fundação da reescrita em Laravel...","state":"closed","type":null,"pull_request":{...,"merged_at":"2026-08-20T20:07:50Z"}}` |
+| `gh api "repos/.../issues/1"` | pull request #1: `{"number":1,"title":"<pull request title>","state":"closed","type":null,"pull_request":{...,"merged_at":"2026-08-20T20:07:50Z"}}` |
 | `gh api "repos/.../issues/1/dependencies/blocked_by"` | `[]` — for a number that is a pull request, not an issue |
 | `gh api "repos/.../issues/1/dependencies/blocking"` | `[]` |
 | `gh api "repos/.../pulls/1" --jq '{number,merged,merged_at,base:.base.ref}'` | `{"base":"main","merged":true,"merged_at":"2026-08-20T20:07:50Z","number":1}` — the second half of the completion check, against a real merge |

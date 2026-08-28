@@ -3,7 +3,7 @@
 A PR marked **ready for review** does not end the run — it releases the next item onto the stack.
 This is the loop that keeps the cycle turning, and it holds the invariant the design rests on.
 
-Amended by **AD-021**. Before it, this phase released on a merge to `main`; the rule now is a PR
+Amended by **[D-3](decisions.md)**. Before it, this phase released on a merge to `main`; the rule now is a PR
 leaving draft, and the base branch moves with the chain instead of staying `main`.
 
 ## The invariant
@@ -96,7 +96,7 @@ not already been dispatched in this run. An item dispatched earlier is never re-
 Newly eligible items enter [Phase 1.5](plan-production.md) first, for their spec and Definition
 of Done, then Phase 3.
 
-## On a PR returning to DRAFT — hold everything above it (AD-025)
+## On a PR returning to DRAFT — hold everything above it ([D-4](decisions.md))
 
 Leaving draft releases the next item. **Returning to draft retracts that**, and the retraction has
 to reach the items already cut from that branch.
@@ -184,5 +184,5 @@ long it has been open.
 
 **The stack merges as a unit, and a human merges it.** `gh stack merge` is theirs to run, after
 review, and so is deciding whether to run this skill again afterwards. Both zero-exception
-boundaries in `SKILL.md` survive AD-021 untouched: this skill never merges a pull request, and
+boundaries in `SKILL.md` survive [D-3](decisions.md) untouched: this skill never merges a pull request, and
 never pushes to `main`.

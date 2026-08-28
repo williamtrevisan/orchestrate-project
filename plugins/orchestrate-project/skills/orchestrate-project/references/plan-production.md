@@ -73,7 +73,7 @@ project's configured document, or to the item itself.
 
 ## 3.5 Decide the item's tier
 
-The Definition of Done you just derived is what settles it (AD-023, and the table in `SKILL.md`).
+The Definition of Done you just derived is what settles it ([D-5](decisions.md), and the table in `SKILL.md`).
 
 Ask what the item's deliverable **is**, not how hard it sounds:
 
@@ -89,7 +89,7 @@ criteria are all evidentiary is an analysis item.
 and must carry one** — a `tierReason` that names what judgment the item requires and what would go
 wrong on the execution tier. "It looks hard" is not a reason; "the deliverable is the evidence" is.
 
-Only **one** high-tier implementer runs at a time (AD-024). If a wave contains two, the second
+Only **one** high-tier implementer runs at a time ([D-6](decisions.md)). If a wave contains two, the second
 waits — they are the items most likely to exhaust a quota, and one did on the first real run.
 
 Record the decision and its reason in `meta.json` alongside the base branch. [Phase 3](spawn.md)

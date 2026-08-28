@@ -46,7 +46,7 @@ never the subject of a clarifying question ([Phase 2](references/clarify.md)).
    marker and the conventions document come from `.orchestrate-project.json`, written by
    `/orchestrate-init`. A missing key stops the phase that needs it and names it; no value is ever
    carried over from another repository.
-1. **Stacked waves (AD-021).** An item starts once ALL its blockers have a PR **marked ready for
+1. **Stacked waves ([D-3](references/decisions.md)).** An item starts once ALL its blockers have a PR **marked ready for
    review**, and its worktree is cut from the branch of its last blocker rather than from `main`.
    Implementers open their PR as a **draft on the first commit** so progress is visible from the
    start; a draft releases nothing. Blockers are linearized into a chain, so a fan-in item
@@ -60,7 +60,7 @@ never the subject of a clarifying question ([Phase 2](references/clarify.md)).
    unresolved.
 4. **Never merge.** No merge step, no auto-merge, no self-approval, under any circumstance.
 
-## Cost discipline (AD-024)
+## Cost discipline ([D-6](references/decisions.md))
 
 A high tier is the expensive default nobody notices choosing. Measured on the first real run:
 **four verification passes cost ~384k tokens** (85.5k, 103.6k, 104.8k, 90.4k), and a high-tier
@@ -132,7 +132,7 @@ Both apply identically inside every dispatched worktree — there is no orchestr
 ## Model policy
 
 **Opus orchestrates. The tier an item runs on follows what the item's deliverable actually is
-(AD-023).**
+([D-5](references/decisions.md)).**
 
 | Item produces | Tier | Why |
 | --- | --- | --- |
