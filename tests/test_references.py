@@ -114,3 +114,34 @@ class RunnerVersionStamp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InitCommand(unittest.TestCase):
+    """T16's criteria, asserted rather than trusted to prose review."""
+
+    def setUp(self):
+        self.path = os.path.join(
+            paths.PLUGIN_DIR, "commands", "orchestrate-init.md"
+        )
+        if not os.path.isfile(self.path):
+            self.skipTest("orchestrate-init.md is written in T16")
+        self.text = read(self.path)
+
+    def test_resolves_the_script_through_the_plugin_root_variable(self):
+        """A hardcoded path breaks the moment the plugin is installed anywhere
+        other than where it was written."""
+        self.assertIn("${CLAUDE_PLUGIN_ROOT}", self.text)
+
+    def test_probes_before_it_writes(self):
+        self.assertLess(self.text.index("probe"), self.text.index("write \\"))
+
+    def test_documents_every_exit_code_the_script_can_return(self):
+        for code in ("| 0 |", "| 1 |", "| 2 |", "| 3 |", "| 4 |"):
+            self.assertIn(code, self.text)
+
+    def test_states_that_a_failing_option_is_shown_not_hidden(self):
+        self.assertIn("never hide it", self.text.lower())
+
+    def test_carries_frontmatter_with_a_description(self):
+        self.assertTrue(self.text.startswith("---"))
+        self.assertIn("description:", self.text.split("---")[1])
