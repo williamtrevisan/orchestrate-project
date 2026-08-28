@@ -19,14 +19,13 @@ def read(path):
         return handle.read()
 
 
-#: Files that still live only in the source tree. Each is copied and retargeted
-#: in a later task; the link checker treats a link to one of these as pending
-#: rather than broken. The set shrinks to empty as the migration completes, at
-#: which point the check becomes fully strict on its own.
-PENDING_MIGRATION = {
-    "SKILL.md",
-    "plan-production.md",
-}
+#: Files that still live only in the source tree. The link checker treats a link
+#: to one of these as pending rather than broken.
+#:
+#: **This set is now empty: the migration is complete.** The link check is fully
+#: strict, which is what it was written to become. An entry added back here must
+#: be removed again before the migration can be called done.
+PENDING_MIGRATION = set()
 
 
 class OrcaFreedom(unittest.TestCase):
@@ -49,7 +48,17 @@ class OrcaFreedom(unittest.TestCase):
 
 class ShippedReferences(unittest.TestCase):
     def test_the_runtime_independent_references_are_present(self):
-        for name in ("clarify.md", "contract.md", "read.md"):
+        for name in (
+            "clarify.md",
+            "compute-waves.md",
+            "contract.md",
+            "monitor.md",
+            "plan-production.md",
+            "read.md",
+            "runner.md",
+            "spawn.md",
+            "standing-implementer-workflow.md",
+        ):
             self.assertTrue(
                 os.path.isfile(os.path.join(paths.REFERENCES_DIR, name)), name
             )
