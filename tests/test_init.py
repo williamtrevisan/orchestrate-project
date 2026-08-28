@@ -110,7 +110,7 @@ class ShippedTrackers(unittest.TestCase):
 
     def test_every_shipped_tracker_declares_a_probe(self):
         for name in init.shipped_trackers():
-            self.assertIn(name, init.TRACKER_PROBES)
+            self.assertIn(name, init.TRACKER_TRANSPORTS)
 
 
 class TrackerProbe(unittest.TestCase):
@@ -120,20 +120,25 @@ class TrackerProbe(unittest.TestCase):
         self.assertEqual(result["command"], "gh auth status")
 
     def test_a_missing_executable_is_a_failure_not_a_crash(self):
-        original = dict(init.TRACKER_PROBES)
+        original = dict(init.TRACKER_TRANSPORTS)
         try:
-            init.TRACKER_PROBES["ghost"] = ["definitely-not-a-real-binary-xyz"]
+            init.TRACKER_TRANSPORTS["ghost"] = {
+                "kind": "cli",
+                "command": ["definitely-not-a-real-binary-xyz"],
+                "needs_config": [],
+            }
             result = init.probe_tracker("ghost")
             self.assertFalse(result["ok"])
             self.assertIn("not found", result["stderr"])
         finally:
-            init.TRACKER_PROBES.clear()
-            init.TRACKER_PROBES.update(original)
+            init.TRACKER_TRANSPORTS.clear()
+            init.TRACKER_TRANSPORTS.update(original)
 
     def test_an_undeclared_tracker_reports_the_gap_rather_than_passing(self):
         result = init.probe_tracker("nonexistent")
         self.assertFalse(result["ok"])
         self.assertIsNone(result["command"])
+        self.assertIsNone(result["transport"])
 
 
 class RunnerProbe(unittest.TestCase):
@@ -768,3 +773,81 @@ class LiveRuntimeIntegration(unittest.TestCase):
         code, out = init._run(init.DAEMON_STATUS_COMMAND)
         self.assertEqual(code, 0)
         self.assertIn("daemon", out)
+
+
+class TrackerTransports(unittest.TestCase):
+    """Transports genuinely differ. A probe written for the wrong one is worse
+    than none: it can fail while the tracker works, or pass while it does not."""
+
+    def test_every_shipped_tracker_declares_a_transport_kind(self):
+        for name in init.shipped_trackers():
+            self.assertIn(name, init.TRACKER_TRANSPORTS)
+            self.assertIn(
+                init.TRACKER_TRANSPORTS[name]["kind"], ("cli", "mcp", "http")
+            )
+
+    def test_github_needs_no_configuration(self):
+        """Its connection is implied by the checkout, so the skill carries no
+        organisation or repository name."""
+        self.assertEqual(init.TRACKER_TRANSPORTS["github"]["needs_config"], [])
+
+    def test_a_tracker_missing_its_configuration_fails_naming_the_keys(self):
+        result = init.probe_tracker("jira", {})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["missing_config"], ["site", "cloud_id"])
+        self.assertIn("tracker_config.jira.site", result["stderr"])
+
+    def test_an_mcp_tracker_never_reports_ok_from_this_script(self):
+        """A script cannot see the session's tool list. Reporting a guess as a
+        pass is the failure the probe exists to prevent."""
+        result = init.probe_tracker(
+            "jira", {"jira": {"site": "acme.atlassian.net", "cloud_id": "x"}}
+        )
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["verify_in_session"])
+
+    def test_a_cli_tracker_is_never_deferred_to_the_session(self):
+        with stubbed_runtime():
+            result = init.probe_tracker("github", {})
+        self.assertFalse(result["verify_in_session"])
+
+    def test_an_http_tracker_fails_when_its_credential_variable_is_unset(self):
+        config = {"linear": {"workspace": "acme", "api_key_env": "NOT_SET_ANYWHERE_X"}}
+        result = init.probe_tracker("linear", config)
+        self.assertFalse(result["ok"])
+        self.assertIn("NOT_SET_ANYWHERE_X", result["stderr"])
+
+    def test_an_http_tracker_passes_when_its_credential_variable_is_set(self):
+        config = {"linear": {"workspace": "acme", "api_key_env": "PROBE_TEST_KEY"}}
+        os.environ["PROBE_TEST_KEY"] = "value"
+        try:
+            self.assertTrue(init.probe_tracker("linear", config)["ok"])
+        finally:
+            del os.environ["PROBE_TEST_KEY"]
+
+    def test_the_credential_value_is_never_read_into_the_report(self):
+        """Configuration names the variable; it never carries the secret."""
+        config = {"linear": {"workspace": "acme", "api_key_env": "PROBE_TEST_KEY"}}
+        os.environ["PROBE_TEST_KEY"] = "super-secret-value"
+        try:
+            report = json.dumps(init.probe_tracker("linear", config))
+            self.assertNotIn("super-secret-value", report)
+        finally:
+            del os.environ["PROBE_TEST_KEY"]
+
+    def test_an_mcp_tracker_can_still_be_written(self):
+        """Otherwise a tracker whose reachability this script cannot see could
+        never be configured at all."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                code = init.main(
+                    [
+                        "--root", tmp, "write", "--tracker", "jira",
+                        "--gate-command", "make test", "--today", "2026-01-01",
+                        "--tracker-config",
+                        '{"jira":{"site":"acme.atlassian.net","cloud_id":"x"}}',
+                    ]
+                )
+            self.assertEqual(code, 0)

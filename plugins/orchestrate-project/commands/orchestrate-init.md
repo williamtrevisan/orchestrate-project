@@ -45,10 +45,26 @@ Each question below is skipped when the report or an argument already settles it
 
 | Question | Offer | Skip when |
 | --- | --- | --- |
-| Which tracker? | Every shipped tracker, each labelled with its probe verdict | `--tracker` was given, or exactly one tracker probes clean and the rest are absent |
+| Which tracker? | Every shipped tracker, each labelled with its probe verdict **and its transport** | `--tracker` was given, or exactly one tracker probes clean and the rest are absent |
+| The tracker's connection settings | The keys named in `missing_config`, with placeholder shapes | `tracker_config` already carries them, or the tracker needs none |
 | Which gate command, and from where? | Each detected candidate with the manifest it came from and its working directory, plus "let me type it" | Exactly one candidate exists and the operator confirms it |
 | Which conventions document? | Each detected candidate, plus **"none — derive the Definition of Done from the item alone"** | No candidate exists, and the operator is told so |
 | The runner is not ready — run the next step? | The command from `runner.blocking_stage`, and "not now" | `runner.ready` is true |
+
+### Transports differ, and so does what "reachable" means
+
+| Transport | Reachability | Configured by |
+| --- | --- | --- |
+| `cli` | The script runs the command and reads its exit code | Nothing — `github`'s connection is implied by the checkout |
+| `mcp` | **Only you can see this.** The script reports `verify_in_session: true`, because a shell cannot read the session's tool list. Confirm the MCP server is connected before dispatching | `tracker_config.<tracker>.*` |
+| `http` | The script checks the named environment variable is set — never its value | `tracker_config.<tracker>.api_key_env` names the variable |
+
+**An `mcp` tracker never reports `ok` from the script.** That is deliberate, not a defect: reporting
+a guess as a pass is exactly the failure the probe exists to prevent. Write the configuration, then
+verify the server yourself before the first dispatch.
+
+**Never put a credential in `tracker_config`.** It names *where* a secret lives — an environment
+variable — and the configuration file is committed.
 
 **Show a failing option; never hide it.** A tracker whose credential is broken must appear with its failure attached. Hiding it makes a broken credential look like an unsupported tracker, and the operator then debugs the wrong thing.
 

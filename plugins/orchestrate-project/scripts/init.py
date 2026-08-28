@@ -57,11 +57,34 @@ TRACKERS_DIR = os.path.join(
     PLUGIN_ROOT, "skills", "orchestrate-project", "references", "trackers"
 )
 
-#: The authentication probe each tracker declares. Read-only, every one of them.
-TRACKER_PROBES = {
-    "github": ["gh", "auth", "status"],
-    "jira": ["acli", "jira", "auth", "status"],
-    "linear": ["linear", "whoami"],
+#: How each tracker is reached, and how to tell whether it is reachable.
+#:
+#: Transports genuinely differ, and a probe written for the wrong one is worse
+#: than none: it can fail while the tracker works, or pass while it does not.
+#:
+#:   cli    a local executable this script can run and read an exit code from
+#:   mcp    an MCP server the *session* holds. A script cannot see the session's
+#:          tool list, so it verifies configuration and defers reachability to
+#:          the command, which can.
+#:   http   a remote API reached with a credential named by configuration. The
+#:          script checks the variable is set; it never reads or stores a value.
+TRACKER_TRANSPORTS = {
+    "github": {
+        "kind": "cli",
+        "command": ["gh", "auth", "status"],
+        "needs_config": [],
+    },
+    "jira": {
+        "kind": "mcp",
+        "server": "atlassian",
+        "endpoint": "https://mcp.atlassian.com/v1/mcp",
+        "needs_config": ["site", "cloud_id"],
+    },
+    "linear": {
+        "kind": "http",
+        "endpoint": "https://api.linear.app/graphql",
+        "needs_config": ["workspace", "api_key_env"],
+    },
 }
 
 #: Manifests that can name a project's gate, in the order they are looked for.
@@ -113,23 +136,89 @@ def _run(argv):
         return 126, str(err)
 
 
-def probe_tracker(name):
-    argv = TRACKER_PROBES.get(name)
-    if argv is None:
+def _missing_tracker_config(name, tracker_config):
+    needed = TRACKER_TRANSPORTS.get(name, {}).get("needs_config", [])
+    present = (tracker_config or {}).get(name) or {}
+    return [key for key in needed if not present.get(key)]
+
+
+def probe_tracker(name, tracker_config=None):
+    """Whether this tracker is reachable, answered the way its transport allows.
+
+    `ok` is never optimistic. An MCP tracker returns ok=False with
+    `verify_in_session` set, because this script cannot see the session's tool
+    list and must not report a guess as a pass.
+    """
+    transport = TRACKER_TRANSPORTS.get(name)
+    if transport is None:
         return {
             "tracker": name,
+            "transport": None,
             "command": None,
             "exit_code": None,
-            "stderr": "no probe declared for this tracker",
+            "stderr": "no transport declared for this tracker",
+            "ok": False,
+            "verify_in_session": False,
+        }
+
+    kind = transport["kind"]
+    missing = _missing_tracker_config(name, tracker_config)
+    base = {
+        "tracker": name,
+        "transport": kind,
+        "missing_config": missing,
+        "verify_in_session": False,
+    }
+
+    if missing:
+        keys = ", ".join(f"tracker_config.{name}.{k}" for k in missing)
+        return {
+            **base,
+            "command": None,
+            "exit_code": None,
+            "stderr": f"not configured: {keys}",
             "ok": False,
         }
-    code, err = _run(argv)
+
+    if kind == "cli":
+        argv = transport["command"]
+        code, err = _run(argv)
+        return {
+            **base,
+            "command": " ".join(argv),
+            "exit_code": code,
+            "stderr": "" if code == 0 else err,
+            "ok": code == 0,
+        }
+
+    if kind == "mcp":
+        return {
+            **base,
+            "command": f"MCP server {transport['server']!r} ({transport['endpoint']})",
+            "exit_code": None,
+            "stderr": (
+                "configured; reachability is a session fact this script cannot "
+                "see - confirm the MCP server is connected before dispatching"
+            ),
+            "ok": False,
+            "verify_in_session": True,
+        }
+
+    variable = (tracker_config or {}).get(name, {}).get("api_key_env")
+    if not os.environ.get(variable):
+        return {
+            **base,
+            "command": f"${variable}",
+            "exit_code": None,
+            "stderr": f"{variable} is not set in this environment",
+            "ok": False,
+        }
     return {
-        "tracker": name,
-        "command": " ".join(argv),
-        "exit_code": code,
-        "stderr": "" if code == 0 else err,
-        "ok": code == 0,
+        **base,
+        "command": f"{transport['endpoint']} with ${variable}",
+        "exit_code": None,
+        "stderr": "",
+        "ok": True,
     }
 
 
@@ -442,9 +531,12 @@ def read_config(root):
 def cmd_probe(args):
     trackers = shipped_trackers()
     config, config_error = read_config(args.root)
+    existing_tracker_config = (config or {}).get("tracker_config") or {}
     report = {
         "shipped_trackers": trackers,
-        "tracker_probes": [probe_tracker(name) for name in trackers],
+        "tracker_probes": [
+            probe_tracker(name, existing_tracker_config) for name in trackers
+        ],
         "runner": probe_runner(args.pin, deep=args.deep),
         "gate_candidates": detect_gate_commands(args.root),
         "constitution_candidates": detect_constitutions(args.root),
@@ -464,9 +556,15 @@ def _print_human(report):
     if report["config_error"]:
         print(f"  FAIL  {report['config_error']}")
     for probe in report["tracker_probes"]:
-        mark = "ok  " if probe["ok"] else "FAIL"
+        if probe["ok"]:
+            mark = "ok  "
+        elif probe["verify_in_session"]:
+            mark = "?   "
+        else:
+            mark = "FAIL"
         detail = "" if probe["ok"] else f" - {probe['stderr']}"
-        print(f"  {mark}  {probe['tracker']:<8} {probe['command']}{detail}")
+        kind = probe["transport"] or "?"
+        print(f"  {mark}  {probe['tracker']:<8} [{kind}] {probe['command']}{detail}")
     runner = report["runner"]
     for stage in runner.get("stages", []):
         mark = "ok  " if stage["ok"] else "FAIL"
@@ -524,15 +622,6 @@ def cmd_write(args):
         print(json.dumps(existing, indent=2, ensure_ascii=False))
         return 3
 
-    probe = probe_tracker(args.tracker)
-    if not probe["ok"]:
-        print(
-            f"  FAIL  {probe['tracker']:<8} {probe['command']} - {probe['stderr']}",
-            file=sys.stderr,
-        )
-        print("init: probe failed; nothing written", file=sys.stderr)
-        return 1
-
     tracker_config = {}
     if args.tracker_config:
         try:
@@ -543,6 +632,22 @@ def cmd_write(args):
         if not isinstance(tracker_config, dict):
             print("init: --tracker-config must be a JSON object", file=sys.stderr)
             return 2
+
+    probe = probe_tracker(args.tracker, tracker_config)
+    if not probe["ok"] and not probe["verify_in_session"]:
+        print(
+            f"  FAIL  {probe['tracker']:<8} {probe['command']} - {probe['stderr']}",
+            file=sys.stderr,
+        )
+        print("init: probe failed; nothing written", file=sys.stderr)
+        return 1
+    if probe["verify_in_session"]:
+        print(
+            f"  ?     {probe['tracker']:<8} configured, reachability unverified here - "
+            "confirm the MCP server is connected before dispatching",
+            file=sys.stderr,
+        )
+
     config = build_config(
         args.tracker, project, pin=args.pin, today=args.today,
         tracker_config=tracker_config,
@@ -573,7 +678,10 @@ def cmd_status(args):
 def _selftest():
     assert shipped_trackers() == sorted(shipped_trackers())
     for name in shipped_trackers():
-        assert name in TRACKER_PROBES, f"no probe declared for shipped tracker {name}"
+        assert name in TRACKER_TRANSPORTS, f"no transport for shipped tracker {name}"
+        assert TRACKER_TRANSPORTS[name]["kind"] in ("cli", "mcp", "http")
+    assert _missing_tracker_config("jira", {}) == ["site", "cloud_id"]
+    assert _missing_tracker_config("github", {}) == []
     absent = probe_runner("v0.0.0-none")
     assert absent["present"] in (True, False)
     assert compare_pin(None, "v1") == "unknown"
