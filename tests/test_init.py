@@ -544,3 +544,66 @@ class Selftest(unittest.TestCase):
             source = handle.read()
         for forbidden in ("urllib", "requests", "socket", "http.client"):
             self.assertNotIn(forbidden, source)
+
+
+class VersionCommandRegression(unittest.TestCase):
+    """Both bugs here were found by installing Compozy and running probe against
+    it - neither was reachable from fixtures alone."""
+
+    def test_version_is_read_from_a_subcommand_not_a_flag(self):
+        """`compozy --version` does not exist; `compozy version` does. The
+        conventional form was assumed rather than read from --help, and the
+        probe reported the runner present with no version."""
+        self.assertEqual(init.VERSION_COMMAND, ["compozy", "version"])
+        self.assertNotIn("--version", init.VERSION_COMMAND)
+
+    def test_a_missing_v_prefix_is_not_drift(self):
+        """`compozy version` prints "compozy 0.3.0-beta.21" while the release
+        tag reads "v0.3.0-beta.21". Substring comparison reported drift between
+        a build and itself."""
+        self.assertEqual(
+            init.compare_pin("compozy 0.3.0-beta.21", "v0.3.0-beta.21"), "match"
+        )
+
+    def test_a_present_v_prefix_still_matches(self):
+        self.assertEqual(
+            init.compare_pin("compozy v0.3.0-beta.21", "0.3.0-beta.21"), "match"
+        )
+
+    def test_a_genuinely_different_build_is_still_drift(self):
+        """The normalization must not soften a real mismatch."""
+        self.assertEqual(
+            init.compare_pin("compozy 0.3.0-beta.24", "v0.3.0-beta.21"), "drift"
+        )
+
+    def test_unreadable_output_is_unknown_not_a_match(self):
+        self.assertEqual(init.compare_pin("garbage output", "v0.3.0-beta.21"), "unknown")
+
+    def test_a_present_runner_with_no_readable_version_is_flagged(self):
+        original = init.VERSION_COMMAND
+        try:
+            init.VERSION_COMMAND = ["definitely-not-a-real-binary-xyz"]
+            if shutil.which(init.RUNNER):
+                result = init.probe_runner("v0.3.0-beta.21")
+                self.assertIsNone(result["version"])
+                self.assertIn("unverified", result["advice"])
+        finally:
+            init.VERSION_COMMAND = original
+
+
+class VersionNormalization(unittest.TestCase):
+    def test_extracts_the_bare_token(self):
+        self.assertEqual(init.normalize_version("compozy 0.3.0-beta.21"), "0.3.0-beta.21")
+
+    def test_strips_a_leading_v(self):
+        self.assertEqual(init.normalize_version("v1.2.3"), "1.2.3")
+
+    def test_a_string_with_no_version_yields_none(self):
+        self.assertIsNone(init.normalize_version("no version here"))
+
+    def test_none_yields_none(self):
+        self.assertIsNone(init.normalize_version(None))
+
+    def test_prerelease_detection_survives_normalization(self):
+        self.assertTrue(init.is_prerelease("compozy 0.3.0-beta.21"))
+        self.assertFalse(init.is_prerelease("compozy 1.0.0"))

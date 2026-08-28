@@ -30,6 +30,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,11 @@ import sys
 CONFIG_NAME = ".orchestrate-project.json"
 RUNNER = "compozy"
 INSTALL_COMMAND = "curl -fsSL https://compozy.com/install.sh | sh"
+
+#: Read from `compozy --help` on v0.3.0-beta.21, not assumed. `--version` is not
+#: a flag this CLI has; `version` is a subcommand. Guessing the conventional
+#: form produced a probe that reported the runner present with no version.
+VERSION_COMMAND = [RUNNER, "version"]
 
 #: The plugin root - this script lives in <plugin>/scripts/.
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -129,19 +135,39 @@ def is_prerelease(version):
     a pin is a moving target rather than a stable contract. Saying so is the
     honest default until a stable release exists.
     """
-    return bool(version) and "-" in version.split("+", 1)[0]
+    token = normalize_version(version)
+    return bool(token) and "-" in token
+
+
+VERSION_TOKEN = re.compile(r"v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)")
+
+
+def normalize_version(text):
+    """The bare version token from a string, without a leading v.
+
+    `compozy version` prints "compozy 0.3.0-beta.21" while a release tag reads
+    "v0.3.0-beta.21". Comparing those as substrings reports drift between a
+    build and itself, and a false drift warning trains the operator to ignore
+    a real one.
+    """
+    if not text:
+        return None
+    found = VERSION_TOKEN.search(text)
+    return found.group(1) if found else None
 
 
 def compare_pin(version, pin):
     """How an installed version relates to the pin the flags were captured at.
 
-    Returns one of: 'unknown' (either side missing), 'match', or 'drift'. Drift
-    is never resolved silently - it is a re-verification trigger, because the
-    documented flags were read from one specific build.
+    Returns one of: 'unknown' (either side unreadable), 'match', or 'drift'.
+    Drift is never resolved silently - it is a re-verification trigger, because
+    the documented flags were read from one specific build.
     """
-    if not version or not pin:
+    installed = normalize_version(version)
+    pinned = normalize_version(pin)
+    if not installed or not pinned:
         return "unknown"
-    return "match" if pin in version else "drift"
+    return "match" if installed == pinned else "drift"
 
 
 def probe_runner(pin=None):
@@ -160,11 +186,16 @@ def probe_runner(pin=None):
                 "claims a working runner."
             ),
         }
-    code, out = _run([RUNNER, "--version"])
+    code, out = _run(VERSION_COMMAND)
     version = out.splitlines()[0].strip() if code == 0 and out else None
     state = compare_pin(version, pin)
     advice = None
-    if state == "drift":
+    if version is None:
+        advice = (
+            f"{RUNNER} is on PATH but `{' '.join(VERSION_COMMAND)}` returned nothing "
+            "readable. Treat the runtime as unverified rather than usable."
+        )
+    elif state == "drift":
         advice = (
             f"installed {version} but references/runner.md was captured at {pin}. "
             "Re-capture the command table from --help before dispatching; a flag "
@@ -335,6 +366,8 @@ def _print_human(report):
     runner = report["runner"]
     if not runner["present"]:
         print(f"  WARN  {RUNNER}   not installed - {runner['install_command']}")
+    elif runner["version"] is None:
+        print(f"  WARN  {RUNNER}   present but version unreadable")
     elif runner["pin_state"] == "drift":
         print(f"  WARN  {RUNNER}   {runner['version']} (pinned {runner['pin']})")
     else:
@@ -428,7 +461,10 @@ def _selftest():
     assert compare_pin(None, "v1") == "unknown"
     assert compare_pin("v1.0.0", None) == "unknown"
     assert compare_pin("compozy v0.3.0-beta.21", "v0.3.0-beta.21") == "match"
+    assert compare_pin("compozy 0.3.0-beta.21", "v0.3.0-beta.21") == "match"
     assert compare_pin("compozy v0.3.0-beta.24", "v0.3.0-beta.21") == "drift"
+    assert normalize_version("compozy 0.3.0-beta.21") == "0.3.0-beta.21"
+    assert normalize_version("no version here") is None
     assert is_prerelease("v0.3.0-beta.21") is True
     assert is_prerelease("v1.0.0") is False
     assert detect_gate_commands("/nonexistent-path-for-selftest") == []
