@@ -44,6 +44,11 @@ INSTALL_COMMAND = "curl -fsSL https://compozy.com/install.sh | sh"
 #: form produced a probe that reported the runner present with no version.
 VERSION_COMMAND = [RUNNER, "version"]
 
+#: Read from `compozy daemon --help`: its subcommands are bootstrap, start and
+#: stop - there is no `daemon status`. Consolidated runtime state comes from the
+#: top-level `compozy status`, whose daemon block carries the running flag.
+DAEMON_STATUS_COMMAND = [RUNNER, "status", "-o", "json"]
+
 #: The plugin root - this script lives in <plugin>/scripts/.
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -170,8 +175,95 @@ def compare_pin(version, pin):
     return "match" if installed == pinned else "drift"
 
 
+def _suggested_command(output):
+    """The recovery command Compozy itself names, when it names one.
+
+    Its JSON errors carry diagnostic.suggested_command. Reading that beats
+    hardcoding a fix here, which would drift from the runtime it repairs.
+    """
+    try:
+        payload = json.loads(output)
+    except (ValueError, TypeError):
+        return None
+    diagnostic = payload.get("diagnostic") or {}
+    return diagnostic.get("suggested_command") or payload.get("suggested_command")
+
+
+def _stage(name, ok, detail, command=None):
+    return {"stage": name, "ok": ok, "detail": detail, "suggested_command": command}
+
+
+def probe_runner_stages(pin=None):
+    """Every prerequisite between a bare machine and a dispatchable runtime.
+
+    Reported as an ordered chain because each stage gates the next: a daemon
+    cannot start before bootstrap, and doctor cannot run before the daemon. The
+    first failure is the only one worth acting on.
+    """
+    stages = []
+
+    binary = shutil.which(RUNNER)
+    stages.append(
+        _stage(
+            "binary",
+            bool(binary),
+            binary or f"{RUNNER} not on PATH",
+            None if binary else INSTALL_COMMAND,
+        )
+    )
+    if not binary:
+        fallback = os.path.expanduser(f"~/.local/bin/{RUNNER}")
+        if os.path.isfile(fallback):
+            stages[-1]["detail"] = (
+                f"{fallback} exists but is not on PATH"
+            )
+            stages[-1]["suggested_command"] = 'export PATH="$HOME/.local/bin:$PATH"'
+        return stages
+
+    code, out = _run(VERSION_COMMAND)
+    version = out.splitlines()[0].strip() if code == 0 and out else None
+    stages.append(
+        _stage("version", version is not None, version or "version unreadable")
+    )
+
+    config = os.path.expanduser("~/.compozy/config.toml")
+    bootstrapped = os.path.isfile(config)
+    stages.append(
+        _stage(
+            "bootstrap",
+            bootstrapped,
+            config if bootstrapped else "~/.compozy/config.toml absent",
+            None if bootstrapped else f"{RUNNER} install --provider claude -o json",
+        )
+    )
+    if not bootstrapped:
+        return stages
+
+    code, out = _run(DAEMON_STATUS_COMMAND)
+    running = code == 0 and '"status": "running"' in out
+    stages.append(
+        _stage(
+            "daemon",
+            running,
+            "running" if running else "not reachable",
+            None if running else (_suggested_command(out) or f"{RUNNER} daemon start"),
+        )
+    )
+    if not running:
+        return stages
+
+    code, out = _run([RUNNER, "doctor", "-o", "json"])
+    stages.append(
+        _stage("doctor", code == 0, "ran" if code == 0 else "unavailable",
+               _suggested_command(out))
+    )
+    return stages
+
+
 def probe_runner(pin=None):
     """Report Compozy's presence and version. Absence is a fact, not an error."""
+    stages = probe_runner_stages(pin)
+    blocking = next((st for st in stages if not st["ok"]), None)
     if not shutil.which(RUNNER):
         return {
             "present": False,
@@ -180,6 +272,9 @@ def probe_runner(pin=None):
             "pin_state": "unknown",
             "prerelease": is_prerelease(pin),
             "install_command": INSTALL_COMMAND,
+            "stages": stages,
+            "ready": False,
+            "blocking_stage": blocking["stage"] if blocking else None,
             "advice": (
                 f"{RUNNER} is not installed. Dispatch cannot run until it is; "
                 "install it yourself rather than having this write a config that "
@@ -213,6 +308,9 @@ def probe_runner(pin=None):
         "pin_state": state,
         "prerelease": is_prerelease(version),
         "install_command": None,
+        "stages": stages,
+        "ready": blocking is None,
+        "blocking_stage": blocking["stage"] if blocking else None,
         "advice": advice,
     }
 

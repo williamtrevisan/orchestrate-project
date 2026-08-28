@@ -607,3 +607,74 @@ class VersionNormalization(unittest.TestCase):
     def test_prerelease_detection_survives_normalization(self):
         self.assertTrue(init.is_prerelease("compozy 0.3.0-beta.21"))
         self.assertFalse(init.is_prerelease("compozy 1.0.0"))
+
+
+class RunnerReadinessChain(unittest.TestCase):
+    """Every prerequisite between a bare machine and a dispatchable runtime,
+    reported as an ordered chain because each stage gates the next."""
+
+    def test_stages_are_reported_in_dependency_order(self):
+        names = [st["stage"] for st in init.probe_runner_stages()]
+        expected = ["binary", "version", "bootstrap", "daemon", "doctor"]
+        self.assertEqual(names, expected[: len(names)])
+
+    def test_the_chain_stops_at_the_first_failure(self):
+        """Only the first failure is worth acting on; the rest are consequences."""
+        original = shutil.which
+        try:
+            shutil.which = lambda _name: None
+            stages = init.probe_runner_stages()
+            self.assertEqual(len(stages), 1)
+            self.assertFalse(stages[0]["ok"])
+        finally:
+            shutil.which = original
+
+    def test_a_missing_binary_offers_the_install_command(self):
+        original = shutil.which
+        try:
+            shutil.which = lambda _name: None
+            stages = init.probe_runner_stages()
+            self.assertIsNotNone(stages[0]["suggested_command"])
+        finally:
+            shutil.which = original
+
+    def test_blocking_stage_is_named_rather_than_left_to_inference(self):
+        result = init.probe_runner("v0.3.0-beta.21")
+        self.assertIn("blocking_stage", result)
+        self.assertIn("ready", result)
+        if result["ready"]:
+            self.assertIsNone(result["blocking_stage"])
+        else:
+            self.assertIsNotNone(result["blocking_stage"])
+
+
+class SuggestedCommandParsing(unittest.TestCase):
+    """Compozy names its own recovery command in JSON errors. Reading that beats
+    hardcoding a fix that would drift from the runtime it repairs."""
+
+    def test_reads_the_command_from_a_diagnostic_block(self):
+        payload = json.dumps(
+            {"error": "x", "diagnostic": {"suggested_command": "compozy daemon start"}}
+        )
+        self.assertEqual(init._suggested_command(payload), "compozy daemon start")
+
+    def test_reads_a_top_level_suggested_command(self):
+        payload = json.dumps({"suggested_command": "compozy install"})
+        self.assertEqual(init._suggested_command(payload), "compozy install")
+
+    def test_non_json_output_yields_none_rather_than_raising(self):
+        self.assertIsNone(init._suggested_command("Doctor\n======\nStatus: error"))
+
+    def test_none_yields_none(self):
+        self.assertIsNone(init._suggested_command(None))
+
+
+class DaemonStatusCommand(unittest.TestCase):
+    def test_daemon_state_is_read_from_the_top_level_status_command(self):
+        """Regression: `compozy daemon status` does not exist - daemon's
+        subcommands are bootstrap, start and stop. The invalid form printed help
+        and exited 0, which the check read as a stopped daemon while it ran."""
+        self.assertEqual(
+            init.DAEMON_STATUS_COMMAND, ["compozy", "status", "-o", "json"]
+        )
+        self.assertNotIn("daemon", init.DAEMON_STATUS_COMMAND)
