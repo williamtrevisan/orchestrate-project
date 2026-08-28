@@ -113,6 +113,7 @@ only when `cleanup.safe` is true. Removal deletes the linked checkout, never the
 | `session_state(id)` | `compozy session inspect <id> -o json` |
 | `session_health(id)` | `compozy session health <id> -o json` |
 | `read_logs(session)` | `compozy logs --session <id> --last <n> -o json` |
+| `session_prompt(id, text)` | `compozy session prompt <id> "<message>" -o json` |
 
 **Liveness is a reported state, never an inference.** `--state` takes `starting`, `active`,
 `stopping`, `stopped`; `--attention` filters to sessions needing an operator. Do not count
@@ -121,6 +122,11 @@ runtime forced all three, and misreading them cost the reference run about eight
 
 `--worktree <id>` is the binding between a dispatched item and its session. Filter on it rather
 than matching display names.
+
+`session prompt` takes `--queue` to hold input while the session is busy, and `--steer` /
+`--interrupt` with `--expected-turn-id` to replace or cut the active turn. **Prefer plain send or
+`--queue`.** Steering and interrupting act on a turn id that may have moved by the time the call
+lands; use them only when a session is demonstrably going the wrong way, never as a routine nudge.
 
 `compozy logs --follow` streams over SSE. Prefer `--last` for a bounded read; a follow that is never
 closed holds the session open.

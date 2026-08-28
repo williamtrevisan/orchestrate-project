@@ -25,8 +25,6 @@ def read(path):
 #: which point the check becomes fully strict on its own.
 PENDING_MIGRATION = {
     "SKILL.md",
-    "advance.md",
-    "monitor.md",
     "plan-production.md",
     "standing-implementer-workflow.md",
     "trackers/jira.md",
