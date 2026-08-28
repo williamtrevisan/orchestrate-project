@@ -26,9 +26,6 @@ def read(path):
 PENDING_MIGRATION = {
     "SKILL.md",
     "plan-production.md",
-    "standing-implementer-workflow.md",
-    "trackers/jira.md",
-    "trackers/linear.md",
 }
 
 
