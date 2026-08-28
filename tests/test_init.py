@@ -851,3 +851,34 @@ class TrackerTransports(unittest.TestCase):
                     ]
                 )
             self.assertEqual(code, 0)
+
+
+class McpVerificationIsToolBased(unittest.TestCase):
+    """A shell cannot reach an MCP server the session holds, but the command
+    can: it has the tools. The script's job is to name which one to call."""
+
+    def test_every_mcp_transport_declares_a_verify_tool(self):
+        for name, transport in init.TRACKER_TRANSPORTS.items():
+            if transport["kind"] != "mcp":
+                continue
+            self.assertTrue(
+                transport.get("verify_tool"), f"{name} declares no verify tool"
+            )
+
+    def test_the_probe_hands_back_the_tool_to_call(self):
+        result = init.probe_tracker(
+            "jira", {"jira": {"site": "acme.atlassian.net", "cloud_id": "x"}}
+        )
+        self.assertTrue(result["verify_in_session"])
+        self.assertEqual(result["verify_tool"], "mcp__atlassian__atlassianUserInfo")
+        self.assertIn("mcp__atlassian__", result["command"])
+
+    def test_a_discovery_tool_is_offered_so_values_are_not_typed(self):
+        result = init.probe_tracker("jira", {})
+        self.assertEqual(
+            result["discover_tool"], "mcp__atlassian__getAccessibleAtlassianResources"
+        )
+
+    def test_non_mcp_transports_declare_no_verify_tool(self):
+        with stubbed_runtime():
+            self.assertIsNone(init.probe_tracker("github", {})["verify_tool"])

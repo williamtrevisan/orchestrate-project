@@ -17,7 +17,25 @@ goes through [the contract](../contract.md).
 
 This skill carries neither value. A hardcoded site identifies one tenant and is wrong for every
 other, and a cloud id in a shared file is someone's infrastructure detail travelling further than
-they agreed to. Use the Streamable HTTP endpoint
+they agreed to.
+
+**Both values are discoverable, not typed.** `mcp__atlassian__getAccessibleAtlassianResources`
+returns every accessible site with its cloud id; `/orchestrate-init` offers those as options. A
+pasted UUID is where the typo goes.
+
+**That call returns one entry per scope set, not one per site.** A single site appears more than
+once — once with Confluence scopes, once with `read:jira-work` / `write:jira-work` — carrying the
+same `id`. Verified live. So:
+
+- **Dedupe by `id` before offering choices**, or the operator is asked to choose between two
+  identical-looking sites.
+- **Select on scope, not on position.** Taking the first entry can land on the Confluence grant,
+  which cannot read an Epic. The Jira entry is the one carrying `read:jira-work`.
+
+**Reachability is verified by calling the MCP, never inferred.**
+`mcp__atlassian__atlassianUserInfo` is the check: a read-only identity call that either returns an
+active account or does not. The tool being absent from the session means the server is not
+connected — which is a stop, not a warning. Use the Streamable HTTP endpoint
 `https://mcp.atlassian.com/v1/mcp` — the HTTP+SSE endpoint (`/v1/sse`) is unsupported after
 30 June 2026.
 

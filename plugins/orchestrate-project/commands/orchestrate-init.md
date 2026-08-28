@@ -56,12 +56,28 @@ Each question below is skipped when the report or an argument already settles it
 | Transport | Reachability | Configured by |
 | --- | --- | --- |
 | `cli` | The script runs the command and reads its exit code | Nothing — `github`'s connection is implied by the checkout |
-| `mcp` | **Only you can see this.** The script reports `verify_in_session: true`, because a shell cannot read the session's tool list. Confirm the MCP server is connected before dispatching | `tracker_config.<tracker>.*` |
+| `mcp` | **You verify it, by calling the tool.** The script cannot — a shell has no access to the session's MCP servers — so it hands you the tool name in `verify_tool` | `tracker_config.<tracker>.*`, discoverable via `discover_tool` |
 | `http` | The script checks the named environment variable is set — never its value | `tracker_config.<tracker>.api_key_env` names the variable |
 
-**An `mcp` tracker never reports `ok` from the script.** That is deliberate, not a defect: reporting
-a guess as a pass is exactly the failure the probe exists to prevent. Write the configuration, then
-verify the server yourself before the first dispatch.
+### Verifying and discovering an MCP tracker
+
+An `mcp` probe returns `ok: false` with `verify_in_session: true`. **That is not a failure — it is
+the script declining to guess.** Finish the job yourself:
+
+1. **Call the probe's `verify_tool`.** For Jira that is
+   `mcp__atlassian__atlassianUserInfo`, a read-only identity call. It returning an active account
+   *is* the reachability check. If the tool is not available in this session, the MCP server is not
+   connected — say so and stop, rather than writing a configuration that claims a working tracker.
+2. **Call the probe's `discover_tool` to fill the configuration.** For Jira,
+   `mcp__atlassian__getAccessibleAtlassianResources` returns the accessible sites with their cloud
+   ids. Offer those as the options rather than asking the operator to paste a UUID — they have the
+   answer in front of them and typing it is where the typo goes.
+   **Dedupe by cloud id and select on scope**: that call returns one entry per scope set, so a site
+   appears twice and the first entry may be a grant that cannot read the tracker at all.
+3. Pass what you found to `write --tracker-config`.
+
+**Never mark an MCP tracker verified without calling its tool.** The whole reason the script defers
+is that a guess and a check are indistinguishable in the output.
 
 **Never put a credential in `tracker_config`.** It names *where* a secret lives — an environment
 variable — and the configuration file is committed.

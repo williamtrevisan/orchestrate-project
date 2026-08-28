@@ -79,6 +79,9 @@ TRACKER_TRANSPORTS = {
         "server": "atlassian",
         "endpoint": "https://mcp.atlassian.com/v1/mcp",
         "needs_config": ["site", "cloud_id"],
+        # The command calls these; this script cannot. Both are read-only.
+        "verify_tool": "mcp__atlassian__atlassianUserInfo",
+        "discover_tool": "mcp__atlassian__getAccessibleAtlassianResources",
     },
     "linear": {
         "kind": "http",
@@ -159,6 +162,8 @@ def probe_tracker(name, tracker_config=None):
             "stderr": "no transport declared for this tracker",
             "ok": False,
             "verify_in_session": False,
+            "verify_tool": None,
+            "discover_tool": None,
         }
 
     kind = transport["kind"]
@@ -168,6 +173,8 @@ def probe_tracker(name, tracker_config=None):
         "transport": kind,
         "missing_config": missing,
         "verify_in_session": False,
+        "verify_tool": transport.get("verify_tool"),
+        "discover_tool": transport.get("discover_tool"),
     }
 
     if missing:
@@ -194,14 +201,16 @@ def probe_tracker(name, tracker_config=None):
     if kind == "mcp":
         return {
             **base,
-            "command": f"MCP server {transport['server']!r} ({transport['endpoint']})",
+            "command": transport["verify_tool"],
             "exit_code": None,
             "stderr": (
-                "configured; reachability is a session fact this script cannot "
-                "see - confirm the MCP server is connected before dispatching"
+                f"configured; call {transport['verify_tool']} to verify - a shell "
+                "cannot reach an MCP server the session holds"
             ),
             "ok": False,
             "verify_in_session": True,
+            "verify_tool": transport["verify_tool"],
+            "discover_tool": transport.get("discover_tool"),
         }
 
     variable = (tracker_config or {}).get(name, {}).get("api_key_env")
@@ -643,8 +652,8 @@ def cmd_write(args):
         return 1
     if probe["verify_in_session"]:
         print(
-            f"  ?     {probe['tracker']:<8} configured, reachability unverified here - "
-            "confirm the MCP server is connected before dispatching",
+            f"  ?     {probe['tracker']:<8} configured; verify with "
+            f"{probe['verify_tool']}",
             file=sys.stderr,
         )
 
@@ -681,6 +690,9 @@ def _selftest():
         assert name in TRACKER_TRANSPORTS, f"no transport for shipped tracker {name}"
         assert TRACKER_TRANSPORTS[name]["kind"] in ("cli", "mcp", "http")
     assert _missing_tracker_config("jira", {}) == ["site", "cloud_id"]
+    for name, transport in TRACKER_TRANSPORTS.items():
+        if transport["kind"] == "mcp":
+            assert transport.get("verify_tool"), f"{name} declares no verify tool"
     assert _missing_tracker_config("github", {}) == []
     absent = probe_runner("v0.0.0-none")
     assert absent["present"] in (True, False)
