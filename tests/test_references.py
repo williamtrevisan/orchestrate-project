@@ -29,7 +29,6 @@ PENDING_MIGRATION = {
     "compute-waves.md",
     "monitor.md",
     "plan-production.md",
-    "spawn.md",
     "standing-implementer-workflow.md",
     "trackers/jira.md",
     "trackers/linear.md",
