@@ -678,3 +678,37 @@ class DaemonStatusCommand(unittest.TestCase):
             init.DAEMON_STATUS_COMMAND, ["compozy", "status", "-o", "json"]
         )
         self.assertNotIn("daemon", init.DAEMON_STATUS_COMMAND)
+
+
+class HumanOutput(unittest.TestCase):
+    """The operator-facing view. The readiness chain was computed but not
+    printed, so the one surface a human reads showed none of it."""
+
+    def _probe(self, root):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            init.main(["--root", root, "probe"])
+        return out.getvalue()
+
+    def test_every_stage_is_printed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = self._probe(tmp)
+            for stage in init.probe_runner_stages():
+                self.assertIn(stage["stage"], text)
+
+    def test_the_summary_states_whether_the_runner_is_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = self._probe(tmp)
+            self.assertTrue(
+                "runner ready" in text or "blocked at" in text,
+                "summary must state runner readiness",
+            )
+
+    def test_a_failing_stage_prints_its_next_command(self):
+        original = shutil.which
+        try:
+            shutil.which = lambda _name: None
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertIn("next:", self._probe(tmp))
+        finally:
+            shutil.which = original

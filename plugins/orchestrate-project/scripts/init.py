@@ -462,14 +462,13 @@ def _print_human(report):
         detail = "" if probe["ok"] else f" - {probe['stderr']}"
         print(f"  {mark}  {probe['tracker']:<8} {probe['command']}{detail}")
     runner = report["runner"]
-    if not runner["present"]:
-        print(f"  WARN  {RUNNER}   not installed - {runner['install_command']}")
-    elif runner["version"] is None:
-        print(f"  WARN  {RUNNER}   present but version unreadable")
-    elif runner["pin_state"] == "drift":
-        print(f"  WARN  {RUNNER}   {runner['version']} (pinned {runner['pin']})")
-    else:
-        print(f"  ok    {RUNNER}   {runner['version']}")
+    for stage in runner.get("stages", []):
+        mark = "ok  " if stage["ok"] else "FAIL"
+        print(f"  {mark}  {stage['stage']:<10} {stage['detail']}")
+        if not stage["ok"] and stage["suggested_command"]:
+            print(f"        next: {stage['suggested_command']}")
+    if runner["pin_state"] == "drift":
+        print(f"  WARN  pin        {runner['version']} vs pinned {runner['pin']}")
     if runner["advice"]:
         print(f"        {runner['advice']}")
     gates = report["gate_candidates"]
@@ -477,10 +476,12 @@ def _print_human(report):
     docs = report["constitution_candidates"]
     print(f"  info  conventions {len(docs) or 'none'} candidate(s)")
     passing = sum(1 for p in report["tracker_probes"] if p["ok"])
-    version = report["plugin_version"]
+    runner_state = (
+        "runner ready" if runner["ready"] else f"blocked at {runner['blocking_stage']}"
+    )
     print(
-        f"\ninit: {passing}/{len(report['tracker_probes'])} tracker probe(s) passing "
-        f"(plugin {version})"
+        f"\ninit: {passing}/{len(report['tracker_probes'])} tracker probe(s) passing, "
+        f"{runner_state} (plugin {report['plugin_version']})"
     )
 
 
