@@ -502,3 +502,45 @@ class PluginVersionReporting(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 init.main(["--root", tmp, "probe"])
             self.assertIn(f"plugin {init.plugin_version()}", out.getvalue())
+
+
+class Selftest(unittest.TestCase):
+    """T15's criteria, pinned. The selftest grew across T12-T14 rather than
+    arriving whole; these assert what it must keep doing."""
+
+    def test_prints_an_ok_line_and_exits_zero(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = init.main(["selftest"])
+        self.assertEqual(code, 0)
+        self.assertIn("ok", out.getvalue())
+
+    def test_runs_from_any_working_directory(self):
+        """It is an in-field diagnostic: it must not depend on being run from
+        a project root, because it is run when something is already wrong."""
+        original = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                os.chdir(tmp)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(init.main(["selftest"]), 0)
+            finally:
+                os.chdir(original)
+
+    def test_writes_no_file(self):
+        original = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                os.chdir(tmp)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    init.main(["selftest"])
+                self.assertEqual(os.listdir(tmp), [])
+            finally:
+                os.chdir(original)
+
+    def test_the_script_makes_no_network_calls(self):
+        script = os.path.join(paths.PLUGIN_DIR, "scripts", "init.py")
+        with open(script, encoding="utf-8") as handle:
+            source = handle.read()
+        for forbidden in ("urllib", "requests", "socket", "http.client"):
+            self.assertNotIn(forbidden, source)
