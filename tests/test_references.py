@@ -26,7 +26,6 @@ def read(path):
 PENDING_MIGRATION = {
     "SKILL.md",
     "advance.md",
-    "compute-waves.md",
     "monitor.md",
     "plan-production.md",
     "standing-implementer-workflow.md",
