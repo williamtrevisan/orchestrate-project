@@ -117,6 +117,14 @@ that did not exist, a version string compared with a prefix it does not carry, a
 subcommand whose invalid form printed help and exited 0 — reporting a running daemon as stopped.
 Each looked correct in review and failed only against the real binary.
 
+**This rule was discovered twice, independently.** A separate lineage of this skill reached the same
+conclusion from a different failure set and wrote its own command table for the same reason: *five*
+defects that its fixture traces did not catch — a wrong MCP tool prefix, a lookup parameter that
+took a slug rather than a URL, a boolean default that ran the wrong way, wrong JSON field names, and
+executable resolution landing on an unrelated program. **All five were tool-surface errors, not
+logic errors.** A documented algorithm can be internally consistent and still name flags that do not
+exist. Eight defects across two lineages, zero of them caught by review.
+
 ## D-9 · A tracker reached over MCP is granted to every dispatched session
 
 **Decision.** Where the selected tracker uses an MCP server, [Phase 3](spawn.md) grants it to each
@@ -137,3 +145,27 @@ objection is answered rather than dismissed — but the answer is a required fla
 **Failure shape, which is why this is a decision and not a footnote.** Without the grant the
 implementer's tracker writes do not error. They are silently skipped, and the board simply never
 updates. A missing write that looks like a working run is worse than a loud failure.
+
+## D-10 · The stack is a registered object, not a chain of pull requests
+
+**Decision.** Every time an implementer's pull request opens, re-form the stack with
+`gh stack link <bottom-pr> … <top-pr>`, passing **pull request numbers, never branch names**.
+
+**Why.** `gh stack rebase`, `sync` and `merge` act on a stack registered on GitHub. Pull requests
+that merely target one another's branches look like a stack and are not one, so those commands act
+on nothing — silently. This skill maintained bases by hand and called the maintenance commands
+without ever forming the object they operate on.
+
+**Why `link` rather than `init` / `add` / `submit`.** It keeps no local tracking state; its help
+names the case exactly — *"designed for users who manage branches with external tools."* Branches
+here are created inside worktrees the orchestrating session is never checked out into, so there is
+no working copy for local stack state to live in.
+
+**Why numbers and not branches.** Its help states that branch arguments are *pushed to the remote*
+before being resolved. The orchestrator never pushes. Implementers open their pull requests
+draft-first ([D-3](decisions.md)), so a number always exists by the time this runs, and passing one
+keeps the never-push boundary intact.
+
+**Found by comparing lineages, not by review.** Four copies of this skill had diverged across four
+repositories; one had solved this and the others had not. That divergence is the reason this plugin
+exists.

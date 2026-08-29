@@ -150,6 +150,30 @@ An external blocker — another repository, another team's work-group — has no
 stack to build on. It reverts to the older rule: its dependent waits for `read_completion` to
 report it **complete**, and that means merged. A stack never spans repositories.
 
+## Form the stack — every time a pull request opens
+
+`gh stack rebase`, `sync` and `merge` operate on a **stack object registered on GitHub**. A chain of
+pull requests that merely target each other's branches is not one, and running those commands
+against an unformed chain acts on nothing. Form it, then maintain it:
+
+```
+gh stack link <bottom-pr> <next-pr> … <top-pr>
+```
+
+Arguments go **bottom to top**, in the merge order [Phase 1](compute-waves.md) derived. Re-run it
+each time a new pull request opens; it reuses the ones that exist and chains their bases correctly.
+
+**Pass pull request numbers or URLs — never branch names.** Its own help states that *"branch
+arguments are automatically pushed to the remote before creating or looking up PRs."* The
+orchestrator never pushes, and it has nothing to push: implementers open their own pull requests
+draft-first, so by the time this runs every item already has a number. A branch argument here would
+make the orchestrator write to a branch it does not own, for no gain.
+
+`link` is the right command rather than `init` / `add` / `submit` because **it keeps no local
+tracking state** — its help names this case exactly: *"designed for users who manage branches with
+external tools."* This skill's branches are created inside worktrees the orchestrating session is
+never checked out into, so there is no working copy for local stack state to live in.
+
 ## When a parent changes after its children are cut
 
 Review does not leave the base alone. When a gated parent takes review changes, or any parent
