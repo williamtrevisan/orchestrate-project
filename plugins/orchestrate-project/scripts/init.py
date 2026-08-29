@@ -64,10 +64,13 @@ TRACKERS_DIR = os.path.join(
 #:
 #:   cli    a local executable this script can run and read an exit code from
 #:   mcp    an MCP server the *session* holds. A script cannot see the session's
-#:          tool list, so it verifies configuration and defers reachability to
-#:          the command, which can.
-#:   http   a remote API reached with a credential named by configuration. The
-#:          script checks the variable is set; it never reads or stores a value.
+#:          tool list, so it verifies configuration and hands the command the
+#:          tool to call, which it can.
+#:
+#: No shipped tracker needs a credential in configuration: github reads ambient
+#: CLI auth and both MCP servers authenticate in the client. A transport that
+#: took an API key would put a secret's location in a committed file, so none
+#: exists until a tracker genuinely requires one.
 TRACKER_TRANSPORTS = {
     "github": {
         "kind": "cli",
@@ -225,22 +228,7 @@ def probe_tracker(name, tracker_config=None):
             "verify_in_session": True,
         }
 
-    variable = (tracker_config or {}).get(name, {}).get("api_key_env")
-    if not os.environ.get(variable):
-        return {
-            **base,
-            "command": f"${variable}",
-            "exit_code": None,
-            "stderr": f"{variable} is not set in this environment",
-            "ok": False,
-        }
-    return {
-        **base,
-        "command": f"{transport['endpoint']} with ${variable}",
-        "exit_code": None,
-        "stderr": "",
-        "ok": True,
-    }
+    raise ValueError(f"unknown transport kind {kind!r} for tracker {name!r}")
 
 
 def is_prerelease(version):
@@ -700,7 +688,7 @@ def _selftest():
     assert shipped_trackers() == sorted(shipped_trackers())
     for name in shipped_trackers():
         assert name in TRACKER_TRANSPORTS, f"no transport for shipped tracker {name}"
-        assert TRACKER_TRANSPORTS[name]["kind"] in ("cli", "mcp", "http")
+        assert TRACKER_TRANSPORTS[name]["kind"] in ("cli", "mcp")
     assert _missing_tracker_config("jira", {}) == ["site", "cloud_id"]
     for name, transport in TRACKER_TRANSPORTS.items():
         if transport["kind"] == "mcp":

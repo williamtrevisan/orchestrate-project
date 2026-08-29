@@ -783,7 +783,7 @@ class TrackerTransports(unittest.TestCase):
         for name in init.shipped_trackers():
             self.assertIn(name, init.TRACKER_TRANSPORTS)
             self.assertIn(
-                init.TRACKER_TRANSPORTS[name]["kind"], ("cli", "mcp", "http")
+                init.TRACKER_TRANSPORTS[name]["kind"], ("cli", "mcp")
             )
 
     def test_github_needs_no_configuration(self):
@@ -822,45 +822,21 @@ class TrackerTransports(unittest.TestCase):
                 self.assertNotIn("token", key.lower(), f"{name}.{key}")
                 self.assertNotIn("secret", key.lower(), f"{name}.{key}")
 
-    def test_the_http_transport_remains_supported_for_a_future_tracker(self):
-        """No shipped tracker uses it today; the branch is kept because the
-        transport contract admits it, and it is covered rather than dead."""
+    def test_an_unknown_transport_kind_raises_rather_than_passing(self):
+        """A tracker declaring a kind nothing implements must fail loudly. The
+        alternative - falling through to a default - is how a tracker gets
+        reported reachable without anything having checked it."""
         original = dict(init.TRACKER_TRANSPORTS)
         try:
             init.TRACKER_TRANSPORTS["demo"] = {
-                "kind": "http",
-                "endpoint": "https://example.test/graphql",
-                "needs_config": ["api_key_env"],
+                "kind": "carrier-pigeon",
+                "needs_config": [],
             }
-            unset = init.probe_tracker(
-                "demo", {"demo": {"api_key_env": "NOT_SET_ANYWHERE_X"}}
-            )
-            self.assertFalse(unset["ok"])
-            os.environ["PROBE_TEST_KEY"] = "super-secret-value"
-            ok = init.probe_tracker("demo", {"demo": {"api_key_env": "PROBE_TEST_KEY"}})
-            self.assertTrue(ok["ok"])
-            self.assertNotIn("super-secret-value", json.dumps(ok))
+            with self.assertRaises(ValueError):
+                init.probe_tracker("demo", {})
         finally:
-            os.environ.pop("PROBE_TEST_KEY", None)
             init.TRACKER_TRANSPORTS.clear()
             init.TRACKER_TRANSPORTS.update(original)
-
-    def test_an_mcp_tracker_can_still_be_written(self):
-        """Otherwise a tracker whose reachability this script cannot see could
-        never be configured at all."""
-        with tempfile.TemporaryDirectory() as tmp:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
-                io.StringIO()
-            ):
-                code = init.main(
-                    [
-                        "--root", tmp, "write", "--tracker", "jira",
-                        "--gate-command", "make test", "--today", "2026-01-01",
-                        "--tracker-config",
-                        '{"jira":{"site":"acme.atlassian.net","cloud_id":"x"}}',
-                    ]
-                )
-            self.assertEqual(code, 0)
 
 
 class McpVerificationIsToolBased(unittest.TestCase):

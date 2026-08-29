@@ -57,7 +57,10 @@ Each question below is skipped when the report or an argument already settles it
 | --- | --- | --- |
 | `cli` | The script runs the command and reads its exit code | Nothing — `github`'s connection is implied by the checkout |
 | `mcp` | **You verify it, by calling the tool.** The script cannot — a shell has no access to the session's MCP servers — so it hands you the tool name in `verify_tool` | `tracker_config.<tracker>.*`, discoverable via `discover_tool` |
-| `http` | The script checks the named environment variable is set — never its value | `tracker_config.<tracker>.api_key_env` names the variable |
+
+**No tracker takes a credential.** `.orchestrate-project.json` is committed, so a transport that
+needed an API key would put a secret's location in version control. GitHub reads ambient CLI auth;
+both MCP servers authenticate in the client.
 
 ### Verifying and discovering an MCP tracker
 
