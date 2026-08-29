@@ -13,7 +13,7 @@
       "description": "Read a work-group's items and their real blocking relations live, linearize them into a stack, dispatch one autonomous implementer per item into its own Compozy worktree cut from its parent's branch, and babysit each PR through CI and review.",
       "source": "./plugins/orchestrate-project",
       "category": "development",
-      "version": "0.1.0"
+      "version": "0.1.1"
     }
   ]
 }
