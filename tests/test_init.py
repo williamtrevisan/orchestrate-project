@@ -872,3 +872,28 @@ class McpVerificationIsToolBased(unittest.TestCase):
     def test_non_mcp_transports_declare_no_verify_tool(self):
         with stubbed_runtime():
             self.assertIsNone(init.probe_tracker("github", {})["verify_tool"])
+
+
+class ConventionsDetectionCoversRealRepositories(unittest.TestCase):
+    """Found by probing a real project: its entire rule set - gate command,
+    dependency semantics, tier labels - lived in CLAUDE.md, and this list
+    reported 'none' because it looked only for tidier filenames."""
+
+    def test_claude_md_is_a_candidate(self):
+        self.assertIn("CLAUDE.md", init.CONSTITUTION_CANDIDATES)
+
+    def test_agents_md_is_a_candidate(self):
+        self.assertIn("AGENTS.md", init.CONSTITUTION_CANDIDATES)
+
+    def test_a_repository_with_only_claude_md_is_not_reported_as_having_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "CLAUDE.md"), "w", encoding="utf-8").close()
+            self.assertEqual(init.detect_constitutions(tmp), ["CLAUDE.md"])
+
+    def test_an_explicit_conventions_file_still_outranks_claude_md(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("CLAUDE.md", "CONVENTIONS.md"):
+                open(os.path.join(tmp, name), "w", encoding="utf-8").close()
+            self.assertEqual(
+                init.detect_constitutions(tmp), ["CONVENTIONS.md", "CLAUDE.md"]
+            )

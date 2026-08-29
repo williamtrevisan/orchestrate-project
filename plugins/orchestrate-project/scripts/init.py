@@ -115,12 +115,19 @@ GATE_MANIFESTS = [
 ]
 
 #: Filenames that commonly hold a project's conventions, most specific first.
+#:
+#: CLAUDE.md and AGENTS.md are here because that is where a project's rules
+#: actually live in practice, not because they are conventions documents by
+#: design. Probing a real repository found its whole rule set - gate command,
+#: dependency semantics, tier labels - in CLAUDE.md while this list looked only
+#: for tidier names and reported "none".
 CONSTITUTION_CANDIDATES = [
     "docs/constitution.md",
     "docs/conventions.md",
     "CONVENTIONS.md",
-    "CONTRIBUTING.md",
+    "CLAUDE.md",
     "AGENTS.md",
+    "CONTRIBUTING.md",
 ]
 
 
