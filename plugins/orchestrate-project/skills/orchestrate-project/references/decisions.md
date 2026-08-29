@@ -116,3 +116,24 @@ build, with the version recorded. A version bump invalidates the table and requi
 that did not exist, a version string compared with a prefix it does not carry, and a `daemon status`
 subcommand whose invalid form printed help and exited 0 — reporting a running daemon as stopped.
 Each looked correct in review and failed only against the real binary.
+
+## D-9 · A tracker reached over MCP is granted to every dispatched session
+
+**Decision.** Where the selected tracker uses an MCP server, [Phase 3](spawn.md) grants it to each
+dispatched implementer (`--mcp-server <id>`). If the orchestrating session does not itself hold that
+server, the grant cannot be made and the dispatch stops rather than proceeding.
+
+**Why.** An MCP server belongs to the session that holds it, not to the machine. The
+[standing workflow](standing-implementer-workflow.md) has implementers touch the tracker — the
+optional started-write, the Definition of Done written back, a review-stage transition — and none of
+those is reachable from a worktree that was never granted the server.
+
+**Where this came from.** An earlier copy of this skill rejected reaching Linear over MCP outright,
+for exactly this reason: *"it works identically inside a dispatched worktree, where the MCP may not
+be reachable at all."* That objection was correct against a runtime with no way to grant a server to
+a child, and it drove that copy onto a CLI instead. The current runtime can grant one, so the
+objection is answered rather than dismissed — but the answer is a required flag, not an assumption.
+
+**Failure shape, which is why this is a decision and not a footnote.** Without the grant the
+implementer's tracker writes do not error. They are silently skipped, and the board simply never
+updates. A missing write that looks like a working run is worse than a loud failure.

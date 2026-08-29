@@ -32,6 +32,11 @@ same `id`. Verified live. So:
 - **Select on scope, not on position.** Taking the first entry can land on the Confluence grant,
   which cannot read an Epic. The Jira entry is the one carrying `read:jira-work`.
 
+**A dispatched implementer needs this server granted to it.** [Phase 3](../spawn.md) passes
+`--mcp-server atlassian` on the spawn; an MCP server is held by a session, not by the machine, so a
+child does not inherit the orchestrator's. This was a real objection to reaching a tracker over MCP
+at all under the previous runtime, which had no way to grant one — see [D-9](../decisions.md).
+
 **Reachability is verified by calling the MCP, never inferred.**
 `mcp__atlassian__atlassianUserInfo` is the check: a read-only identity call that either returns an
 active account or does not. The tool being absent from the session means the server is not

@@ -130,6 +130,16 @@ without touching any machine-wide default ([D-5](decisions.md)). Two rules follo
 `--ttl-seconds` is mandatory. Size it to the item, and remember that an expired TTL stops a child
 mid-work — a TTL shorter than the item is a self-inflicted stall.
 
+**Where the selected tracker is reached through an MCP server, grant it to the child session.** An
+MCP server is held by a session, not by the machine, so an implementer does not inherit the
+orchestrator's. The [standing workflow](standing-implementer-workflow.md) has the implementer touch
+the tracker — the optional started-write, the Definition of Done written back, a review-stage
+transition — and without the grant each of those is unreachable inside the worktree. It fails as a
+silently skipped step, not as an error, which is the worst shape for it to take.
+
+Preflight this rather than discovering it mid-wave: if the tracker needs a server the orchestrating
+session does not itself hold, the grant cannot be made and the dispatch should stop.
+
 ## 7. Confirm the implementer is actually running
 
 Not from an exit code:

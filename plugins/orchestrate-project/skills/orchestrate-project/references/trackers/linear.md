@@ -97,6 +97,11 @@ would re-couple the tracker layer to the runner — exactly the boundary [D-1](.
 
 The transport is recorded here, in this file, and nowhere else. A phase never learns it.
 
+**A dispatched implementer needs this server granted to it.** [Phase 3](../spawn.md) passes
+`--mcp-server linear` on the spawn; an MCP server is held by a session, not by the machine, so a
+child does not inherit the orchestrator's. This was a real objection to reaching a tracker over MCP
+at all under the previous runtime, which had no way to grant one — see [D-9](../decisions.md).
+
 **This backend ships unvalidated.** No Linear workspace exists to test it against, so
 `/orchestrate-init` probes it like any other tracker and a failure is loud, but nothing here has
 been proven end to end. Treat the four contract reads below as a specification to verify, not as

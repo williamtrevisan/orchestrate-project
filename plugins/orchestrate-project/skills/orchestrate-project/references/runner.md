@@ -102,7 +102,13 @@ only when `cleanup.safe` is true. Removal deletes the linked checkout, never the
   and Hermes; no other provider is dispatched to.
 - `--auto-stop-on-parent` defaults true. For an implementer that must outlive the orchestrating
   session, set it false deliberately.
-- Grants are explicit and repeatable: `--tool`, `--skill`, `--mcp-server`, `--sandbox-profile`,
+- **Grant the selected tracker's MCP server to the child**, when that tracker uses one:
+  `--mcp-server <id>`. An MCP server belongs to the session that holds it, not to the machine, so a
+  dispatched implementer does not inherit the orchestrator's. Without the grant, every implementer
+  write the tracker declares — telling it work has started, writing the Definition of Done back — is
+  unreachable inside the worktree, and the failure appears as a silently skipped step rather than an
+  error.
+- Other grants are explicit and repeatable the same way: `--tool`, `--skill`, `--sandbox-profile`,
   `--workspace-path`, `--channel`.
 
 ## Monitoring
