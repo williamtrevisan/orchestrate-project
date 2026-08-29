@@ -54,7 +54,9 @@ that fails in CI, and the implementer who guessed is the last person able to not
     "bootstrap_marker": null,
     "constitution_path": "CONVENTIONS.md"
   },
-  "tracker_config": {}
+  "tracker_config": {
+    "jira": { "site": "acme.atlassian.net", "cloud_id": "<uuid>" }
+  }
 }
 ```
 
@@ -66,8 +68,8 @@ the same four reads and one optional write. **No phase ever names a tracker.**
 | Tracker | State |
 | --- | --- |
 | `github` | Milestones, issues, native `blocked_by` dependencies. Verified against a live repository |
-| `jira` | Epics via the Atlassian MCP. Connection is per project |
-| `linear` | GraphQL. **Ships unvalidated** — no workspace existed to test against |
+| `jira` | Epics via the Atlassian MCP. Site and cloud id are discovered by tool call, not typed |
+| `linear` | Linear's official hosted MCP. No credential in configuration — OAuth lives in the client. **Ships unvalidated** — no workspace existed to test against, so its tool names are not yet captured |
 
 Adding a tracker is one new document and **no change to any phase**. The shipped set is the offered
 set: drop a file in, and `/orchestrate-init` offers it. If a new tracker requires editing a phase,

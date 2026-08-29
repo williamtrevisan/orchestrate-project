@@ -79,16 +79,15 @@ Linear can move an issue into a started state, so an implementation may declare 
 It may equally leave it absent. Under [D-2](../decisions.md) the orchestrator behaves identically either way, and
 nothing downstream may depend on it having happened.
 
-**Connection.** An example configuration block, with placeholder values only:
+**Connection.** Linear's own hosted MCP server, `https://mcp.linear.app/mcp`. Nothing to install,
+OAuth 2.1, free on every plan. Configuration is one key, and **no credential at all** — the OAuth
+grant lives in the MCP client, not in a file this repository commits:
 
 ```json
-{ "tracker_config": { "linear": { "workspace": "acme", "api_key_env": "LINEAR_API_KEY" } } }
+{ "tracker_config": { "linear": { "workspace": "acme" } } }
 ```
 
-The Linear workspace and API credential are **per project**, read from
-`tracker_config.linear` in that repository's `.orchestrate-project.json`. This skill carries
-neither, and never stores the credential itself — only a reference to where the environment holds
-it.
+The `/sse` endpoint is retired; `/mcp` over Streamable HTTP is the current one.
 
 ## Transport
 

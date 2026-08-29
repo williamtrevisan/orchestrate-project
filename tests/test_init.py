@@ -811,29 +811,39 @@ class TrackerTransports(unittest.TestCase):
             result = init.probe_tracker("github", {})
         self.assertFalse(result["verify_in_session"])
 
-    def test_an_http_tracker_fails_when_its_credential_variable_is_unset(self):
-        config = {"linear": {"workspace": "acme", "api_key_env": "NOT_SET_ANYWHERE_X"}}
-        result = init.probe_tracker("linear", config)
-        self.assertFalse(result["ok"])
-        self.assertIn("NOT_SET_ANYWHERE_X", result["stderr"])
+    def test_no_shipped_tracker_requires_a_credential_in_configuration(self):
+        """.orchestrate-project.json is committed. github reads ambient CLI auth,
+        and both MCP trackers authenticate in the client."""
+        for name, transport in init.TRACKER_TRANSPORTS.items():
+            for key in transport["needs_config"]:
+                self.assertNotIn(
+                    "key", key.lower(), f"{name}.{key} looks like a credential"
+                )
+                self.assertNotIn("token", key.lower(), f"{name}.{key}")
+                self.assertNotIn("secret", key.lower(), f"{name}.{key}")
 
-    def test_an_http_tracker_passes_when_its_credential_variable_is_set(self):
-        config = {"linear": {"workspace": "acme", "api_key_env": "PROBE_TEST_KEY"}}
-        os.environ["PROBE_TEST_KEY"] = "value"
+    def test_the_http_transport_remains_supported_for_a_future_tracker(self):
+        """No shipped tracker uses it today; the branch is kept because the
+        transport contract admits it, and it is covered rather than dead."""
+        original = dict(init.TRACKER_TRANSPORTS)
         try:
-            self.assertTrue(init.probe_tracker("linear", config)["ok"])
+            init.TRACKER_TRANSPORTS["demo"] = {
+                "kind": "http",
+                "endpoint": "https://example.test/graphql",
+                "needs_config": ["api_key_env"],
+            }
+            unset = init.probe_tracker(
+                "demo", {"demo": {"api_key_env": "NOT_SET_ANYWHERE_X"}}
+            )
+            self.assertFalse(unset["ok"])
+            os.environ["PROBE_TEST_KEY"] = "super-secret-value"
+            ok = init.probe_tracker("demo", {"demo": {"api_key_env": "PROBE_TEST_KEY"}})
+            self.assertTrue(ok["ok"])
+            self.assertNotIn("super-secret-value", json.dumps(ok))
         finally:
-            del os.environ["PROBE_TEST_KEY"]
-
-    def test_the_credential_value_is_never_read_into_the_report(self):
-        """Configuration names the variable; it never carries the secret."""
-        config = {"linear": {"workspace": "acme", "api_key_env": "PROBE_TEST_KEY"}}
-        os.environ["PROBE_TEST_KEY"] = "super-secret-value"
-        try:
-            report = json.dumps(init.probe_tracker("linear", config))
-            self.assertNotIn("super-secret-value", report)
-        finally:
-            del os.environ["PROBE_TEST_KEY"]
+            os.environ.pop("PROBE_TEST_KEY", None)
+            init.TRACKER_TRANSPORTS.clear()
+            init.TRACKER_TRANSPORTS.update(original)
 
     def test_an_mcp_tracker_can_still_be_written(self):
         """Otherwise a tracker whose reachability this script cannot see could
@@ -857,12 +867,16 @@ class McpVerificationIsToolBased(unittest.TestCase):
     """A shell cannot reach an MCP server the session holds, but the command
     can: it has the tools. The script's job is to name which one to call."""
 
-    def test_every_mcp_transport_declares_a_verify_tool(self):
+    def test_every_mcp_transport_names_a_tool_or_a_prefix(self):
+        """A captured tool name is better. A prefix is the honest fallback when
+        no workspace exists to capture from - naming a tool that may not exist
+        is the failure this project keeps hitting."""
         for name, transport in init.TRACKER_TRANSPORTS.items():
             if transport["kind"] != "mcp":
                 continue
             self.assertTrue(
-                transport.get("verify_tool"), f"{name} declares no verify tool"
+                transport.get("verify_tool") or transport.get("verify_tool_prefix"),
+                f"{name} names neither a verify tool nor a prefix",
             )
 
     def test_the_probe_hands_back_the_tool_to_call(self):

@@ -84,9 +84,19 @@ TRACKER_TRANSPORTS = {
         "discover_tool": "mcp__atlassian__getAccessibleAtlassianResources",
     },
     "linear": {
-        "kind": "http",
-        "endpoint": "https://api.linear.app/graphql",
-        "needs_config": ["workspace", "api_key_env"],
+        "kind": "mcp",
+        "server": "linear",
+        "endpoint": "https://mcp.linear.app/mcp",
+        "needs_config": ["workspace"],
+        # Linear hosts this server itself and authenticates with OAuth, so no
+        # credential enters configuration at all. The exact tool names are NOT
+        # captured: this machine has no Linear workspace to connect, and naming
+        # a tool that may not exist is the failure this project keeps hitting.
+        # Capture them from a session where the server is connected, then pin
+        # verify_tool the way jira does.
+        "verify_tool": None,
+        "verify_tool_prefix": "mcp__linear__",
+        "discover_tool": None,
     },
 }
 
@@ -174,6 +184,7 @@ def probe_tracker(name, tracker_config=None):
         "missing_config": missing,
         "verify_in_session": False,
         "verify_tool": transport.get("verify_tool"),
+        "verify_tool_prefix": transport.get("verify_tool_prefix"),
         "discover_tool": transport.get("discover_tool"),
     }
 
@@ -199,18 +210,19 @@ def probe_tracker(name, tracker_config=None):
         }
 
     if kind == "mcp":
+        named = transport.get("verify_tool")
+        target = named or f"any {transport['verify_tool_prefix']}* read-only tool"
         return {
             **base,
-            "command": transport["verify_tool"],
+            "command": target,
             "exit_code": None,
             "stderr": (
-                f"configured; call {transport['verify_tool']} to verify - a shell "
-                "cannot reach an MCP server the session holds"
+                f"configured; call {target} to verify - a shell cannot reach an "
+                "MCP server the session holds"
+                + ("" if named else " (exact tool not yet captured)")
             ),
             "ok": False,
             "verify_in_session": True,
-            "verify_tool": transport["verify_tool"],
-            "discover_tool": transport.get("discover_tool"),
         }
 
     variable = (tracker_config or {}).get(name, {}).get("api_key_env")
@@ -692,7 +704,9 @@ def _selftest():
     assert _missing_tracker_config("jira", {}) == ["site", "cloud_id"]
     for name, transport in TRACKER_TRANSPORTS.items():
         if transport["kind"] == "mcp":
-            assert transport.get("verify_tool"), f"{name} declares no verify tool"
+            assert transport.get("verify_tool") or transport.get(
+                "verify_tool_prefix"
+            ), f"{name} names neither a verify tool nor a prefix"
     assert _missing_tracker_config("github", {}) == []
     absent = probe_runner("v0.0.0-none")
     assert absent["present"] in (True, False)
