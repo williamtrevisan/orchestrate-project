@@ -18,7 +18,7 @@ import paths
 
 #: Tenant identifiers that must never appear in shipped files.
 FORBIDDEN = {
-    "atlassian site": re.compile(r"[a-z0-9-]+\.atlassian\.net", re.I),
+    "atlassian site": re.compile(r"(?<![\w.-])([a-z0-9-]+)\.atlassian\.net", re.I),
     "cloud id / uuid": re.compile(
         r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I
     ),
@@ -27,6 +27,10 @@ FORBIDDEN = {
     ),
     "bearer or api token": re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,})"),
 }
+
+#: Hosts that are documented examples rather than anyone's tenant. A gate that
+#: fires on its own placeholder examples gets muted, which is worse than no gate.
+PLACEHOLDER_HOSTS = {"acme", "example", "your-site", "site", "my-site"}
 
 #: Placeholder forms every example must use instead of a real value.
 NEUTRAL_EXAMPLES = ("acme", "example", "your-org", "<", "{")
@@ -62,6 +66,8 @@ class NoTenantIdentifiers(unittest.TestCase):
                     continue
                 for hit in pattern.findall(text):
                     hit = hit if isinstance(hit, str) else hit[0]
+                    if label == "atlassian site" and hit.lower() in PLACEHOLDER_HOSTS:
+                        continue
                     offenders.append(
                         f"{os.path.relpath(path, paths.REPO_ROOT)}: {label} -> {hit}"
                     )

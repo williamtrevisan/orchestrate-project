@@ -57,51 +57,59 @@ TRACKERS_DIR = os.path.join(
     PLUGIN_ROOT, "skills", "orchestrate-project", "references", "trackers"
 )
 
-#: How each tracker is reached, and how to tell whether it is reachable.
+#: How each tracker is reached, and what it needs, is declared by the tracker's
+#: OWN document in a ```tracker-config fenced block - not here.
 #:
-#: Transports genuinely differ, and a probe written for the wrong one is worse
-#: than none: it can fail while the tracker works, or pass while it does not.
+#: It lived here once, and drifted: Jira's document quoted a project key in every
+#: JQL query while this file never asked for one, so init wrote a configuration
+#: the tracker could not use. Two sources for one fact diverge on the first
+#: change to either.
 #:
-#:   cli    a local executable this script can run and read an exit code from
+#: Keeping it in the document also restores the rule the contract claims: adding
+#: a tracker is one new file and no change to any phase - including this script.
+#:
+#:   cli    a local executable this script runs and reads an exit code from
 #:   mcp    an MCP server the *session* holds. A script cannot see the session's
-#:          tool list, so it verifies configuration and hands the command the
-#:          tool to call, which it can.
-#:
-#: No shipped tracker needs a credential in configuration: github reads ambient
-#: CLI auth and both MCP servers authenticate in the client. A transport that
-#: took an API key would put a secret's location in a committed file, so none
-#: exists until a tracker genuinely requires one.
-TRACKER_TRANSPORTS = {
-    "github": {
-        "kind": "cli",
-        "command": ["gh", "auth", "status"],
-        "needs_config": [],
-    },
-    "jira": {
-        "kind": "mcp",
-        "server": "atlassian",
-        "endpoint": "https://mcp.atlassian.com/v1/mcp",
-        "needs_config": ["site", "cloud_id"],
-        # The command calls these; this script cannot. Both are read-only.
-        "verify_tool": "mcp__atlassian__atlassianUserInfo",
-        "discover_tool": "mcp__atlassian__getAccessibleAtlassianResources",
-    },
-    "linear": {
-        "kind": "mcp",
-        "server": "linear",
-        "endpoint": "https://mcp.linear.app/mcp",
-        "needs_config": ["workspace"],
-        # Linear hosts this server itself and authenticates with OAuth, so no
-        # credential enters configuration at all. The exact tool names are NOT
-        # captured: this machine has no Linear workspace to connect, and naming
-        # a tool that may not exist is the failure this project keeps hitting.
-        # Capture them from a session where the server is connected, then pin
-        # verify_tool the way jira does.
-        "verify_tool": None,
-        "verify_tool_prefix": "mcp__linear__",
-        "discover_tool": None,
-    },
-}
+#:          tool list, so it checks the server is configured and hands the
+#:          command the tool to call.
+TRACKER_CONFIG_BLOCK = re.compile(
+    r"^```tracker-config\s*\n(.*?)\n```", re.MULTILINE | re.DOTALL
+)
+
+
+def read_tracker_declaration(name):
+    """The transport a tracker document declares for itself.
+
+    Returns None when the document ships no block - which is a defect in that
+    document, reported as such rather than silently defaulted.
+    """
+    path = os.path.join(TRACKERS_DIR, f"{name}.md")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            found = TRACKER_CONFIG_BLOCK.search(handle.read())
+    except OSError:
+        return None
+    if not found:
+        return None
+    try:
+        block = json.loads(found.group(1))
+    except ValueError:
+        return None
+    block.setdefault("requires", {})
+    block["needs_config"] = sorted(block["requires"])
+    block["kind"] = block.get("transport")
+    return block
+
+
+def tracker_transports():
+    """Every shipped tracker's declaration, keyed by name."""
+    declared = {}
+    for name in shipped_trackers():
+        block = read_tracker_declaration(name)
+        if block:
+            declared[name] = block
+    return declared
+
 
 #: Manifests that can name a project's gate, in the order they are looked for.
 #: The value is the key or target a candidate command is read from.
@@ -196,7 +204,7 @@ def mcp_add_command(transport, scope="project"):
 
 
 def _missing_tracker_config(name, tracker_config):
-    needed = TRACKER_TRANSPORTS.get(name, {}).get("needs_config", [])
+    needed = (read_tracker_declaration(name) or {}).get("needs_config", [])
     present = (tracker_config or {}).get(name) or {}
     return [key for key in needed if not present.get(key)]
 
@@ -208,7 +216,7 @@ def probe_tracker(name, tracker_config=None, root="."):
     `verify_in_session` set, because this script cannot see the session's tool
     list and must not report a guess as a pass.
     """
-    transport = TRACKER_TRANSPORTS.get(name)
+    transport = read_tracker_declaration(name)
     if transport is None:
         return {
             "tracker": name,
@@ -221,6 +229,7 @@ def probe_tracker(name, tracker_config=None, root="."):
             "verify_tool": None,
             "discover_tool": None,
             "server_configured": None,
+            "asks": {},
         }
 
     kind = transport["kind"]
@@ -234,6 +243,7 @@ def probe_tracker(name, tracker_config=None, root="."):
         "verify_tool_prefix": transport.get("verify_tool_prefix"),
         "discover_tool": transport.get("discover_tool"),
         "server_configured": None,
+        "asks": {},
     }
 
     server_present = None
@@ -261,6 +271,7 @@ def probe_tracker(name, tracker_config=None, root="."):
             "exit_code": None,
             "stderr": f"{prefix}not configured: {keys}",
             "ok": False,
+            "asks": {key: transport["requires"][key] for key in missing},
         }
 
     if kind == "cli":
@@ -750,17 +761,20 @@ def cmd_status(args):
 def _selftest():
     assert shipped_trackers() == sorted(shipped_trackers())
     for name in shipped_trackers():
-        assert name in TRACKER_TRANSPORTS, f"no transport for shipped tracker {name}"
-        assert TRACKER_TRANSPORTS[name]["kind"] in ("cli", "mcp")
-    assert _missing_tracker_config("jira", {}) == ["site", "cloud_id"]
-    for name, transport in TRACKER_TRANSPORTS.items():
-        if transport["kind"] == "mcp":
-            assert transport.get("verify_tool") or transport.get(
+        block = read_tracker_declaration(name)
+        assert block, f"{name}.md ships no tracker-config block"
+        assert block["kind"] in ("cli", "mcp"), f"{name}: unknown transport"
+        for key, why in block["requires"].items():
+            assert why.strip(), f"{name}.{key} is declared with no explanation"
+    assert "project_key" in _missing_tracker_config("jira", {})
+    for name, block in tracker_transports().items():
+        if block["kind"] == "mcp":
+            assert block.get("verify_tool") or block.get(
                 "verify_tool_prefix"
             ), f"{name} names neither a verify tool nor a prefix"
     assert _missing_tracker_config("github", {}) == []
     assert isinstance(configured_mcp_servers("/nonexistent-selftest"), list)
-    assert "claude mcp add" in mcp_add_command(TRACKER_TRANSPORTS["linear"])
+    assert "claude mcp add" in mcp_add_command(tracker_transports()["linear"])
     absent = probe_runner("v0.0.0-none")
     assert absent["present"] in (True, False)
     assert compare_pin(None, "v1") == "unknown"

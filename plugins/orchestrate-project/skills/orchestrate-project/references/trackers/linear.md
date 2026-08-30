@@ -1,5 +1,21 @@
 # Linear tracker — a contract note, not an implementation
 
+
+```tracker-config
+{
+  "transport": "mcp",
+  "server": "linear",
+  "endpoint": "https://mcp.linear.app/mcp",
+  "verify_tool": null,
+  "verify_tool_prefix": "mcp__linear__",
+  "requires": {
+    "workspace": "Linear workspace slug, the first path segment of your Linear URL.",
+    "team_key": "The team prefix on issue identifiers, e.g. JUR in JUR-142. Scopes every read to one team."
+  },
+  "unverified": "No Linear workspace was available when this was written. Treat requires as derived from the contract, not observed - confirm each key against a real read before trusting a wave."
+}
+```
+
 **This tracker does not exist.** Nothing in this skill selects it, no code here has been run against
 Linear, and every mapping below is an obligation a future implementation must satisfy, not a
 description of behaviour anyone has observed.

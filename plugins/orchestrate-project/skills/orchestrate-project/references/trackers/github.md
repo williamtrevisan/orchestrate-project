@@ -1,5 +1,18 @@
 # GitHub tracker
 
+
+```tracker-config
+{
+  "transport": "cli",
+  "command": [
+    "gh",
+    "auth",
+    "status"
+  ],
+  "requires": {}
+}
+```
+
 One implementation of [the tracker contract](../contract.md), against GitHub milestones, issues and
 **native issue dependencies**. This is the only place GitHub nouns are allowed to appear.
 

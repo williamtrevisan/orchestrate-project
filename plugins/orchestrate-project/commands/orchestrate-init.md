@@ -46,7 +46,7 @@ Each question below is skipped when the report or an argument already settles it
 | Question | Offer | Skip when |
 | --- | --- | --- |
 | Which tracker? | Every shipped tracker, each labelled with its probe verdict **and its transport** | `--tracker` was given, or exactly one tracker probes clean and the rest are absent |
-| The tracker's connection settings | The keys named in `missing_config`, with placeholder shapes | `tracker_config` already carries them, or the tracker needs none |
+| The tracker's connection settings | One question per key in `asks`, **using the explanation the tracker document wrote for it** | `tracker_config` already carries them, or the tracker needs none |
 | Which gate command, and from where? | Each detected candidate with the manifest it came from and its working directory, plus "let me type it" | Exactly one candidate exists and the operator confirms it |
 | Which conventions document? | Each detected candidate, plus **"none — derive the Definition of Done from the item alone"** | No candidate exists, and the operator is told so |
 | The runner is not ready — shall I set it up? | The command from the blocking stage, and "not now" | `runner.ready` is true |
@@ -63,6 +63,18 @@ Each question below is skipped when the report or an argument already settles it
 **No tracker takes a credential.** `.orchestrate-project.json` is committed, so a transport that
 needed an API key would put a secret's location in version control. GitHub reads ambient CLI auth;
 both MCP servers authenticate in the client.
+
+### The tracker document owns its own questions
+
+`asks` maps each missing key to the sentence its tracker document wrote about it. **Use that
+sentence.** It is where the tracker author explains what the value is, where it comes from, and what
+breaks without it — a question you invent instead will be vaguer and can be wrong.
+
+Several keys say *"offer what the discover tool returns"* rather than *"ask"*. Honour that: call the
+tool and present the results as options. A key with a discoverable source should never be typed.
+
+A tracker whose block carries `unverified` ships as a contract note rather than an observed
+implementation. **Say so before writing a configuration that selects it.**
 
 ### Verifying and discovering an MCP tracker
 

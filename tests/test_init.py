@@ -110,7 +110,7 @@ class ShippedTrackers(unittest.TestCase):
 
     def test_every_shipped_tracker_declares_a_probe(self):
         for name in init.shipped_trackers():
-            self.assertIn(name, init.TRACKER_TRANSPORTS)
+            self.assertIsNotNone(init.read_tracker_declaration(name))
 
 
 class TrackerProbe(unittest.TestCase):
@@ -120,19 +120,19 @@ class TrackerProbe(unittest.TestCase):
         self.assertEqual(result["command"], "gh auth status")
 
     def test_a_missing_executable_is_a_failure_not_a_crash(self):
-        original = dict(init.TRACKER_TRANSPORTS)
-        try:
-            init.TRACKER_TRANSPORTS["ghost"] = {
-                "kind": "cli",
-                "command": ["definitely-not-a-real-binary-xyz"],
-                "needs_config": [],
-            }
-            result = init.probe_tracker("ghost")
-            self.assertFalse(result["ok"])
-            self.assertIn("not found", result["stderr"])
-        finally:
-            init.TRACKER_TRANSPORTS.clear()
-            init.TRACKER_TRANSPORTS.update(original)
+        original = init.TRACKERS_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            block = {"transport": "cli", "command": ["definitely-not-real-xyz"],
+                     "requires": {}}
+            open(os.path.join(tmp, "ghost.md"), "w", encoding="utf-8").write(
+                "# Ghost\n\n```tracker-config\n" + json.dumps(block) + "\n```\n")
+            try:
+                init.TRACKERS_DIR = tmp
+                result = init.probe_tracker("ghost")
+                self.assertFalse(result["ok"])
+                self.assertIn("not found", result["stderr"])
+            finally:
+                init.TRACKERS_DIR = original
 
     def test_an_undeclared_tracker_reports_the_gap_rather_than_passing(self):
         result = init.probe_tracker("nonexistent")
@@ -780,29 +780,31 @@ class TrackerTransports(unittest.TestCase):
     than none: it can fail while the tracker works, or pass while it does not."""
 
     def test_every_shipped_tracker_declares_a_transport_kind(self):
-        for name in init.shipped_trackers():
-            self.assertIn(name, init.TRACKER_TRANSPORTS)
-            self.assertIn(
-                init.TRACKER_TRANSPORTS[name]["kind"], ("cli", "mcp")
-            )
+        for name, block in init.tracker_transports().items():
+            self.assertIn(block["kind"], ("cli", "mcp"), name)
 
     def test_github_needs_no_configuration(self):
         """Its connection is implied by the checkout, so the skill carries no
         organisation or repository name."""
-        self.assertEqual(init.TRACKER_TRANSPORTS["github"]["needs_config"], [])
+        self.assertEqual(init.read_tracker_declaration("github")["needs_config"], [])
 
     def test_a_tracker_missing_its_configuration_fails_naming_the_keys(self):
         result = init.probe_tracker("jira", {})
         self.assertFalse(result["ok"])
-        self.assertEqual(result["missing_config"], ["site", "cloud_id"])
-        self.assertIn("tracker_config.jira.site", result["stderr"])
+        self.assertIn("project_key", result["missing_config"])
+        self.assertIn("tracker_config.jira.", result["stderr"])
 
     def test_an_mcp_tracker_never_reports_ok_from_this_script(self):
         """A script cannot see the session's tool list. Reporting a guess as a
         pass is the failure the probe exists to prevent."""
-        result = init.probe_tracker(
-            "jira", {"jira": {"site": "acme.atlassian.net", "cloud_id": "x"}}
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"atlassian": {}}}, fh)
+            result = init.probe_tracker(
+                "jira",
+                {"jira": {"site": "a.example", "cloud_id": "x", "project_key": "ENG"}},
+                root=tmp,
+            )
         self.assertFalse(result["ok"])
         self.assertTrue(result["verify_in_session"])
 
@@ -814,29 +816,29 @@ class TrackerTransports(unittest.TestCase):
     def test_no_shipped_tracker_requires_a_credential_in_configuration(self):
         """.orchestrate-project.json is committed. github reads ambient CLI auth,
         and both MCP trackers authenticate in the client."""
-        for name, transport in init.TRACKER_TRANSPORTS.items():
+        credentialish = ("api_key", "apikey", "token", "secret", "password", "_env")
+        for name, transport in init.tracker_transports().items():
             for key in transport["needs_config"]:
-                self.assertNotIn(
-                    "key", key.lower(), f"{name}.{key} looks like a credential"
-                )
-                self.assertNotIn("token", key.lower(), f"{name}.{key}")
-                self.assertNotIn("secret", key.lower(), f"{name}.{key}")
+                for marker in credentialish:
+                    self.assertNotIn(
+                        marker, key.lower(), f"{name}.{key} looks like a credential"
+                    )
 
     def test_an_unknown_transport_kind_raises_rather_than_passing(self):
         """A tracker declaring a kind nothing implements must fail loudly. The
         alternative - falling through to a default - is how a tracker gets
         reported reachable without anything having checked it."""
-        original = dict(init.TRACKER_TRANSPORTS)
-        try:
-            init.TRACKER_TRANSPORTS["demo"] = {
-                "kind": "carrier-pigeon",
-                "needs_config": [],
-            }
-            with self.assertRaises(ValueError):
-                init.probe_tracker("demo", {})
-        finally:
-            init.TRACKER_TRANSPORTS.clear()
-            init.TRACKER_TRANSPORTS.update(original)
+        original = init.TRACKERS_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            block = {"transport": "carrier-pigeon", "requires": {}}
+            open(os.path.join(tmp, "demo.md"), "w", encoding="utf-8").write(
+                "# Demo\n\n```tracker-config\n" + json.dumps(block) + "\n```\n")
+            try:
+                init.TRACKERS_DIR = tmp
+                with self.assertRaises(ValueError):
+                    init.probe_tracker("demo", {})
+            finally:
+                init.TRACKERS_DIR = original
 
 
 class McpVerificationIsToolBased(unittest.TestCase):
@@ -847,7 +849,7 @@ class McpVerificationIsToolBased(unittest.TestCase):
         """A captured tool name is better. A prefix is the honest fallback when
         no workspace exists to capture from - naming a tool that may not exist
         is the failure this project keeps hitting."""
-        for name, transport in init.TRACKER_TRANSPORTS.items():
+        for name, transport in init.tracker_transports().items():
             if transport["kind"] != "mcp":
                 continue
             self.assertTrue(
@@ -856,9 +858,14 @@ class McpVerificationIsToolBased(unittest.TestCase):
             )
 
     def test_the_probe_hands_back_the_tool_to_call(self):
-        result = init.probe_tracker(
-            "jira", {"jira": {"site": "acme.atlassian.net", "cloud_id": "x"}}
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"atlassian": {}}}, fh)
+            result = init.probe_tracker(
+                "jira",
+                {"jira": {"site": "a.example", "cloud_id": "x", "project_key": "ENG"}},
+                root=tmp,
+            )
         self.assertTrue(result["verify_in_session"])
         self.assertEqual(result["verify_tool"], "mcp__atlassian__atlassianUserInfo")
         self.assertIn("mcp__atlassian__", result["command"])
@@ -953,3 +960,77 @@ class McpServerDetection(unittest.TestCase):
             with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
                 fh.write("{oops")
             self.assertIsInstance(init.configured_mcp_servers(tmp), list)
+
+
+class TrackerDocumentsOwnTheirRequirements(unittest.TestCase):
+    """The transport table lived in this script and drifted from the documents:
+    Jira's document quoted a project key in every JQL query while the script
+    never asked for one, so init wrote a configuration the tracker could not
+    use. Two sources for one fact diverge on the first change to either."""
+
+    def test_every_shipped_tracker_declares_a_block(self):
+        for name in init.shipped_trackers():
+            self.assertIsNotNone(
+                init.read_tracker_declaration(name), f"{name}.md ships no block"
+            )
+
+    def test_jira_requires_the_project_key_its_jql_quotes(self):
+        block = init.read_tracker_declaration("jira")
+        self.assertIn("project_key", block["requires"])
+
+    def test_linear_requires_the_team_key_that_scopes_its_reads(self):
+        block = init.read_tracker_declaration("linear")
+        self.assertIn("team_key", block["requires"])
+
+    def test_github_requires_nothing_because_the_checkout_answers_it(self):
+        self.assertEqual(init.read_tracker_declaration("github")["requires"], {})
+
+    def test_every_required_key_carries_an_explanation(self):
+        """The explanation becomes the question the operator is asked, so an
+        empty one produces a question nobody can answer."""
+        for name in init.shipped_trackers():
+            block = init.read_tracker_declaration(name)
+            for key, why in block["requires"].items():
+                self.assertTrue(why.strip(), f"{name}.{key} has no explanation")
+                self.assertGreater(len(why), 20, f"{name}.{key} explains too little")
+
+    def test_a_missing_key_is_reported_with_its_explanation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"atlassian": {}}}, fh)
+            result = init.probe_tracker("jira", {}, root=tmp)
+            self.assertIn("project_key", result["asks"])
+            self.assertIn("JQL", result["asks"]["project_key"])
+
+    def test_a_tracker_document_with_no_block_is_a_defect_not_a_default(self):
+        original = init.TRACKERS_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "ghost.md"), "w", encoding="utf-8").write("# Ghost\n")
+            try:
+                init.TRACKERS_DIR = tmp
+                self.assertIsNone(init.read_tracker_declaration("ghost"))
+                result = init.probe_tracker("ghost", {})
+                self.assertFalse(result["ok"])
+            finally:
+                init.TRACKERS_DIR = original
+
+    def test_adding_a_tracker_needs_no_change_to_this_script(self):
+        """The contract's own claim, asserted."""
+        original = init.TRACKERS_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            block = {
+                "transport": "cli",
+                "command": ["true"],
+                "requires": {"space": "The space every read is scoped to, e.g. TEAM."},
+            }
+            open(os.path.join(tmp, "asana.md"), "w", encoding="utf-8").write(
+                "# Asana\n\n```tracker-config\n" + json.dumps(block) + "\n```\n"
+            )
+            try:
+                init.TRACKERS_DIR = tmp
+                self.assertEqual(init.shipped_trackers(), ["asana"])
+                self.assertEqual(
+                    init.read_tracker_declaration("asana")["needs_config"], ["space"]
+                )
+            finally:
+                init.TRACKERS_DIR = original

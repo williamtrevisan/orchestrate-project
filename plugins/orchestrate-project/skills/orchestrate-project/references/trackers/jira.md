@@ -1,5 +1,21 @@
 # Jira tracker
 
+
+```tracker-config
+{
+  "transport": "mcp",
+  "server": "atlassian",
+  "endpoint": "https://mcp.atlassian.com/v1/mcp",
+  "verify_tool": "mcp__atlassian__atlassianUserInfo",
+  "discover_tool": "mcp__atlassian__getAccessibleAtlassianResources",
+  "requires": {
+    "site": "Atlassian site host, e.g. acme.atlassian.net. Offer the sites the discover tool returns rather than asking it to be typed.",
+    "cloud_id": "The site's cloud id. Comes from the same discover call — never ask for a pasted UUID. Dedupe by id and pick the entry carrying read:jira-work, not the first one.",
+    "project_key": "The Jira project key issues live under, e.g. ENG. Required: every JQL query quotes it, and an unquoted or missing key fails the query outright rather than returning fewer rows."
+  }
+}
+```
+
 The ticket is the source of truth. This is the only place Jira is read from or written to, so the
 rules below are stated once here and inherited by every phase.
 
