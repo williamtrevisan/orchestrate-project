@@ -50,6 +50,8 @@ Each question below is skipped when the report or an argument already settles it
 | Which gate command, and from where? | Each detected candidate with the manifest it came from and its working directory, plus "let me type it" | Exactly one candidate exists and the operator confirms it |
 | Which conventions document? | Each detected candidate, plus **"none — derive the Definition of Done from the item alone"** | No candidate exists, and the operator is told so |
 | The runner is not ready — shall I set it up? | The command from the blocking stage, and "not now" | `runner.ready` is true |
+| The tracker's MCP server is not configured — add it? | The `claude mcp add` command from the probe, and "not now" | `server_configured` is true, or the tracker uses no MCP |
+| Append the `export` line to your shell profile? | The profile path and the exact line, and "not now" | The runtime is already on `PATH` |
 
 ### Transports differ, and so does what "reachable" means
 
@@ -99,12 +101,22 @@ bootstrap   → compozy install --provider claude -o json
 daemon      → compozy daemon start
 ```
 
-Two stages you cannot fix for them, and must say so rather than pretending:
+**A tracker's MCP server is part of setup too.** When the probe reports `server_configured: false`
+it hands you the exact command; offer it and run it:
 
-- **`binary` when the executable exists but is off `PATH`.** Editing a shell profile is a change to
-  the machine outside this repository. Give them the `export` line.
-- **A tracker's MCP server that is not connected.** Adding one is a client-level change. Give them
-  the `claude mcp add` command.
+```
+claude mcp add --transport http <server> <endpoint> --scope project
+```
+
+`--scope project` matches how the plugin itself is installed — the server belongs to this repository,
+not to every project on the machine. **A server added this way is not live in the current session**;
+say so, because the verify-tool call will fail until Claude Code restarts, and that failure is not a
+broken server.
+
+**`PATH` is the one thing left.** When the runtime is installed but unreachable, offer to append the
+`export` line to the operator's shell profile, and name the file you would touch. It is the only
+step that edits something outside this repository and outside Claude Code's own configuration, so
+it gets its own explicit yes — never folded into another one.
 
 **Confirm before each one, and never chain past a refusal.** Installing a runtime and starting a
 daemon are changes to the machine; a single blanket yes at the start is not consent for the ones

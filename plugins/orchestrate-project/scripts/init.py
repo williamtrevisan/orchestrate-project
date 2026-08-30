@@ -159,13 +159,49 @@ def _run(argv):
         return 126, str(err)
 
 
+def configured_mcp_servers(root):
+    """MCP server ids reachable from this repository, from every place they live.
+
+    Claude Code keeps per-project servers inside ~/.claude.json under
+    projects.<path>.mcpServers, which is *not* a file in the repository. Looking
+    only at .mcp.json and .claude/settings*.json reports "not configured" for a
+    server that is configured - a confident negative, which is worse than no
+    answer.
+    """
+    found = set()
+    home = os.path.expanduser("~/.claude.json")
+    try:
+        with open(home, encoding="utf-8") as handle:
+            data = json.load(handle)
+        found.update(data.get("mcpServers") or {})
+        project = (data.get("projects") or {}).get(os.path.abspath(root)) or {}
+        found.update(project.get("mcpServers") or {})
+    except (ValueError, OSError):
+        pass
+    for relative in (".mcp.json", os.path.join(".claude", "settings.json")):
+        try:
+            with open(os.path.join(root, relative), encoding="utf-8") as handle:
+                found.update(json.load(handle).get("mcpServers") or {})
+        except (ValueError, OSError):
+            continue
+    return sorted(found)
+
+
+def mcp_add_command(transport, scope="project"):
+    """The exact command that adds this tracker's server."""
+    return (
+        f"claude mcp add --transport http {transport['server']} "
+        f"{transport['endpoint']} --scope {scope}"
+    )
+
+
 def _missing_tracker_config(name, tracker_config):
     needed = TRACKER_TRANSPORTS.get(name, {}).get("needs_config", [])
     present = (tracker_config or {}).get(name) or {}
     return [key for key in needed if not present.get(key)]
 
 
-def probe_tracker(name, tracker_config=None):
+def probe_tracker(name, tracker_config=None, root="."):
     """Whether this tracker is reachable, answered the way its transport allows.
 
     `ok` is never optimistic. An MCP tracker returns ok=False with
@@ -184,6 +220,7 @@ def probe_tracker(name, tracker_config=None):
             "verify_in_session": False,
             "verify_tool": None,
             "discover_tool": None,
+            "server_configured": None,
         }
 
     kind = transport["kind"]
@@ -196,15 +233,33 @@ def probe_tracker(name, tracker_config=None):
         "verify_tool": transport.get("verify_tool"),
         "verify_tool_prefix": transport.get("verify_tool_prefix"),
         "discover_tool": transport.get("discover_tool"),
+        "server_configured": None,
     }
+
+    server_present = None
+    if kind == "mcp":
+        server_present = transport["server"] in configured_mcp_servers(root)
+        base["server_configured"] = server_present
+        if not server_present:
+            return {
+                **base,
+                "command": mcp_add_command(transport),
+                "exit_code": None,
+                "stderr": (
+                    f"MCP server {transport['server']!r} is not configured for "
+                    "this repository"
+                ),
+                "ok": False,
+            }
 
     if missing:
         keys = ", ".join(f"tracker_config.{name}.{k}" for k in missing)
+        prefix = "server present; " if server_present else ""
         return {
             **base,
             "command": None,
             "exit_code": None,
-            "stderr": f"not configured: {keys}",
+            "stderr": f"{prefix}not configured: {keys}",
             "ok": False,
         }
 
@@ -551,7 +606,8 @@ def cmd_probe(args):
     report = {
         "shipped_trackers": trackers,
         "tracker_probes": [
-            probe_tracker(name, existing_tracker_config) for name in trackers
+            probe_tracker(name, existing_tracker_config, args.root)
+            for name in trackers
         ],
         "runner": probe_runner(args.pin, deep=args.deep),
         "gate_candidates": detect_gate_commands(args.root),
@@ -649,7 +705,7 @@ def cmd_write(args):
             print("init: --tracker-config must be a JSON object", file=sys.stderr)
             return 2
 
-    probe = probe_tracker(args.tracker, tracker_config)
+    probe = probe_tracker(args.tracker, tracker_config, args.root)
     if not probe["ok"] and not probe["verify_in_session"]:
         print(
             f"  FAIL  {probe['tracker']:<8} {probe['command']} - {probe['stderr']}",
@@ -703,6 +759,8 @@ def _selftest():
                 "verify_tool_prefix"
             ), f"{name} names neither a verify tool nor a prefix"
     assert _missing_tracker_config("github", {}) == []
+    assert isinstance(configured_mcp_servers("/nonexistent-selftest"), list)
+    assert "claude mcp add" in mcp_add_command(TRACKER_TRANSPORTS["linear"])
     absent = probe_runner("v0.0.0-none")
     assert absent["present"] in (True, False)
     assert compare_pin(None, "v1") == "unknown"

@@ -84,12 +84,15 @@ the contract is wrong — fix the contract, not the phase.
 
 ## Requirements
 
-- [Compozy](https://www.compozy.com/) — the dispatch runtime. **You do not install it by hand**:
-  `/orchestrate-init` walks the readiness chain and, with your confirmation, installs it, bootstraps
-  it and starts its daemon. It only hands you a command for the two things it cannot do for you —
-  editing your shell `PATH`, and connecting an MCP server to your client
+- [Compozy](https://www.compozy.com/) — the dispatch runtime
+- An MCP server or CLI for whichever tracker you choose
+
+**You install none of it by hand.** `/orchestrate-init` walks the readiness chain and, with your
+confirmation at each step, installs Compozy, bootstraps it, starts its daemon, adds the tracker's
+MCP server at project scope, and offers to put the runtime on your `PATH`. It confirms before each
+one and stops at a refusal — installing a runtime and editing a shell profile are changes to your
+machine, and one blanket yes is not consent for the rest.
 - Python 3 for the shipped scripts (standard library only, no dependencies)
-- A tracker CLI or MCP for whichever tracker you choose
 
 ## Two boundaries, both zero-exception
 

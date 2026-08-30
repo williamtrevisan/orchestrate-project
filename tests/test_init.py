@@ -897,3 +897,59 @@ class ConventionsDetectionCoversRealRepositories(unittest.TestCase):
             self.assertEqual(
                 init.detect_constitutions(tmp), ["CONVENTIONS.md", "CLAUDE.md"]
             )
+
+
+class McpServerDetection(unittest.TestCase):
+    """Claude Code keeps per-project MCP servers inside ~/.claude.json under
+    projects.<path>.mcpServers - not in any file in the repository. Reading only
+    .mcp.json and .claude/settings.json reported 'not configured' for a server
+    that was configured: a confident negative, worse than no answer."""
+
+    def test_reads_a_project_scoped_server_from_the_home_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home.json")
+            repo = os.path.join(tmp, "repo")
+            os.makedirs(repo)
+            with open(home, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {"projects": {os.path.abspath(repo): {"mcpServers": {"linear": {}}}}},
+                    fh,
+                )
+            original = os.path.expanduser
+            try:
+                os.path.expanduser = lambda p: home if p == "~/.claude.json" else original(p)
+                self.assertIn("linear", init.configured_mcp_servers(repo))
+            finally:
+                os.path.expanduser = original
+
+    def test_reads_a_repository_mcp_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"codegraph": {}}}, fh)
+            self.assertIn("codegraph", init.configured_mcp_servers(tmp))
+
+    def test_an_absent_server_yields_the_exact_add_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = init.probe_tracker(
+                "linear", {"linear": {"workspace": "acme"}}, root=tmp
+            )
+            self.assertFalse(result["ok"])
+            self.assertFalse(result["server_configured"])
+            self.assertIn("claude mcp add --transport http linear", result["command"])
+            self.assertIn("--scope project", result["command"])
+
+    def test_a_present_server_is_reported_even_when_config_is_incomplete(self):
+        """Otherwise the operator is told to configure something without being
+        told the harder prerequisite is already met."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"linear": {}}}, fh)
+            result = init.probe_tracker("linear", {}, root=tmp)
+            self.assertTrue(result["server_configured"])
+            self.assertIn("server present", result["stderr"])
+
+    def test_malformed_config_files_do_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".mcp.json"), "w", encoding="utf-8") as fh:
+                fh.write("{oops")
+            self.assertIsInstance(init.configured_mcp_servers(tmp), list)
