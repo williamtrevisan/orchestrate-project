@@ -49,7 +49,7 @@ Each question below is skipped when the report or an argument already settles it
 | The tracker's connection settings | The keys named in `missing_config`, with placeholder shapes | `tracker_config` already carries them, or the tracker needs none |
 | Which gate command, and from where? | Each detected candidate with the manifest it came from and its working directory, plus "let me type it" | Exactly one candidate exists and the operator confirms it |
 | Which conventions document? | Each detected candidate, plus **"none — derive the Definition of Done from the item alone"** | No candidate exists, and the operator is told so |
-| The runner is not ready — run the next step? | The command from `runner.blocking_stage`, and "not now" | `runner.ready` is true |
+| The runner is not ready — shall I set it up? | The command from the blocking stage, and "not now" | `runner.ready` is true |
 
 ### Transports differ, and so does what "reachable" means
 
@@ -85,9 +85,35 @@ is that a guess and a check are indistinguishable in the output.
 **Never put a credential in `tracker_config`.** It names *where* a secret lives — an environment
 variable — and the configuration file is committed.
 
+### Setting up the runner is your job, not a homework list
+
+**When a runner stage fails, offer to run its command and — on a yes — run it.** Do not print the
+command and stop. The operator invoked a setup command; handing back a list of things to type is
+the setup not happening.
+
+Work the chain from the top, re-probing after each step, because each stage unblocks the next:
+
+```
+binary      → the install command from the report
+bootstrap   → compozy install --provider claude -o json
+daemon      → compozy daemon start
+```
+
+Two stages you cannot fix for them, and must say so rather than pretending:
+
+- **`binary` when the executable exists but is off `PATH`.** Editing a shell profile is a change to
+  the machine outside this repository. Give them the `export` line.
+- **A tracker's MCP server that is not connected.** Adding one is a client-level change. Give them
+  the `claude mcp add` command.
+
+**Confirm before each one, and never chain past a refusal.** Installing a runtime and starting a
+daemon are changes to the machine; a single blanket yes at the start is not consent for the ones
+after it.
+
 **Show a failing option; never hide it.** A tracker whose credential is broken must appear with its failure attached. Hiding it makes a broken credential look like an unsupported tracker, and the operator then debugs the wrong thing.
 
-**Never install anything and never write anything without an explicit answer.** If the operator declines, report what would have been written and stop.
+**Never install anything and never write anything without an explicit answer** — but on a yes,
+*do the thing*. If the operator declines, report what would have been written and stop.
 
 ## 3. Write
 

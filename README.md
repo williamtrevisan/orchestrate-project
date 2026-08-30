@@ -11,16 +11,23 @@ It never merges anything, and it never pushes to your default branch.
 
 ## Install
 
+Once per machine, register the marketplace:
+
 ```
 /plugin marketplace add williamtrevisan/orchestrate-project
-/plugin install orchestrate-project
 ```
 
-Then, once per repository:
+Then **per repository**, from inside it:
 
 ```
+/plugin install orchestrate-project --scope project
 /orchestrate-init
 ```
+
+Project scope is deliberate. Repositories differ — a different tracker, a different gate, or no
+orchestration at all — so enabling this is a per-repository decision rather than a machine-wide one.
+It is recorded in that repository's `.claude/settings.json`, which you commit, so the team shares it
+and a repository that does not use the plugin pays nothing for it.
 
 `/orchestrate-init` asks only what your environment has not already answered. It probes each
 tracker's authentication before offering it, detects your gate command from whatever manifest you
@@ -77,8 +84,10 @@ the contract is wrong — fix the contract, not the phase.
 
 ## Requirements
 
-- [Compozy](https://www.compozy.com/) — the dispatch runtime. `/orchestrate-init` detects it, reports
-  the readiness chain, and names the next command when a stage is missing
+- [Compozy](https://www.compozy.com/) — the dispatch runtime. **You do not install it by hand**:
+  `/orchestrate-init` walks the readiness chain and, with your confirmation, installs it, bootstraps
+  it and starts its daemon. It only hands you a command for the two things it cannot do for you —
+  editing your shell `PATH`, and connecting an MCP server to your client
 - Python 3 for the shipped scripts (standard library only, no dependencies)
 - A tracker CLI or MCP for whichever tracker you choose
 

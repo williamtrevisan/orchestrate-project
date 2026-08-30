@@ -146,3 +146,25 @@ class InitCommand(unittest.TestCase):
     def test_carries_frontmatter_with_a_description(self):
         self.assertTrue(self.text.startswith("---"))
         self.assertIn("description:", self.text.split("---")[1])
+
+
+class InitPerformsRunnerSetup(unittest.TestCase):
+    """A setup command that prints a list of commands to type has not set
+    anything up. The two exceptions are changes outside the repository."""
+
+    def setUp(self):
+        self.path = os.path.join(paths.PLUGIN_DIR, "commands", "orchestrate-init.md")
+        if not os.path.isfile(self.path):
+            self.skipTest("orchestrate-init.md is written in T16")
+        self.text = read(self.path)
+
+    def test_it_runs_the_command_rather_than_printing_it(self):
+        self.assertIn("run it", self.text.lower())
+        self.assertIn("do not print the", self.text.lower())
+
+    def test_it_names_the_two_things_it_cannot_do_for_the_operator(self):
+        for cannot in ("PATH", "claude mcp add"):
+            self.assertIn(cannot, self.text)
+
+    def test_it_confirms_before_each_step_rather_than_once(self):
+        self.assertIn("never chain past a refusal", self.text.lower())
