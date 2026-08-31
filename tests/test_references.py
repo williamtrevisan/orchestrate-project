@@ -113,9 +113,6 @@ class RunnerVersionStamp(unittest.TestCase):
         self.assertRegex(read(self.runner), r"\d{4}-\d{2}-\d{2}")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class InitCommand(unittest.TestCase):
     """T16's criteria, asserted rather than trusted to prose review."""
@@ -168,3 +165,34 @@ class InitPerformsRunnerSetup(unittest.TestCase):
 
     def test_it_confirms_before_each_step_rather_than_once(self):
         self.assertIn("never chain past a refusal", self.text.lower())
+
+
+class SpawnPrecondition(unittest.TestCase):
+    """`compozy spawn` refuses outside a CompozyOS session with `identity_required`,
+    and no `--help` output says so. Observed 2026-08-30 after every documented
+    preflight check had already passed, so the cost of omitting it is a whole
+    run's tracker reads. These assert it stays written down."""
+
+    def setUp(self):
+        self.runner = os.path.join(paths.REFERENCES_DIR, "runner.md")
+        self.spawn = os.path.join(paths.REFERENCES_DIR, "spawn.md")
+        for path in (self.runner, self.spawn):
+            if not os.path.isfile(path):
+                self.skipTest(f"{os.path.basename(path)} not present")
+
+    def test_runner_names_the_environment_variable(self):
+        self.assertIn("COMPOZY_SESSION_ID", read(self.runner))
+
+    def test_runner_records_the_error_code(self):
+        self.assertIn("identity_required", read(self.runner))
+
+    def test_spawn_preflight_checks_it(self):
+        self.assertIn("session_identity()", read(self.spawn))
+
+    def test_spawn_preflight_is_not_still_four(self):
+        """The list grew by one; a stale count reads as a complete check that is not."""
+        self.assertNotIn("All four must hold", read(self.spawn))
+
+
+if __name__ == "__main__":
+    unittest.main()

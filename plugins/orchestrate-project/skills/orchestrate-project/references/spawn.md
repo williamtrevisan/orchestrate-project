@@ -15,19 +15,34 @@ work.
 
 ## 1. Preflight — refuse rather than dispatch into a broken setup
 
-All four must hold. Any miss: report **which** one failed, and dispatch nothing.
+All five must hold. Any miss: report **which** one failed, and dispatch nothing.
 
 ```
+runner: session_identity()    → COMPOZY_SESSION_ID is set
 runner: daemon_state()        → .daemon.status == "running"
 config: .orchestrate-project.json parses, and carries project.gate_command
-config: worktrees.setup_command is set in Compozy's own config
+config: worktrees.setup_command resolves to a bootstrap that exists on the base branch
 git:    the base branch resolves on the remote
 ```
+
+**The first one is not implied by the second.** `compozy spawn` refuses with `identity_required`
+outside a CompozyOS-managed session, while `status`, `doctor` and every worktree command answer
+normally from any shell — so a run reads as ready right up to the moment it dispatches, and then
+cannot. It is listed first because it costs an environment lookup and its absence invalidates the
+entire run: discovering it after Phase 0 and Phase 1 throws away every tracker read. See
+[the runner](runner.md#preflight).
 
 The middle two are the difference between a usable worktree and a bare one:
 
 - Compozy's `setup_command` is what populates dependencies and env files for a fresh checkout.
   Those are gitignored, so a worktree without it cannot run the gate at all.
+- **Set is not the same as effective.** `setup_command` is user-global and carries no project
+  knowledge, so it typically delegates to a script in the repo — and a conditional delegation
+  (`[ -x ./scripts/setup.sh ] && exec ./scripts/setup.sh; true`) is *set* while doing nothing when
+  that script is absent from the base branch. A worktree receives only tracked files, so a bootstrap
+  that exists in someone's working copy but was never committed is not there. That failure is worse
+  than the one below: the trailing `true` means `setup_state` never even goes `failed`. Check the
+  delegated path on the **base branch** (`git ls-tree <base> <path>`), not on disk.
 - **A failed setup is not a failed worktree.** The checkout stays `ready` while `setup_state`
   becomes `"failed"`. Nothing surfaces unless you look, so the readiness test is the project's own
   marker, not the worktree's state.

@@ -22,6 +22,13 @@ conventional form:
 | `compozy --version` | `compozy version` | Reported the runtime present with no version at all |
 | version string carries `v` | `compozy 0.3.0-beta.21` | Reported drift between a build and itself |
 | `compozy daemon status` | `compozy status` | Printed help, exited 0, read as a stopped daemon while it ran |
+| `spawn` runs from any shell | `spawn` requires `COMPOZY_SESSION_ID` | Every preflight passed, then the first dispatch of the run failed `identity_required` |
+
+**`--help` lists flags, not preconditions.** The first three rows above were wrong *spellings*,
+caught by reading `--help`. The fourth is a different failure: `compozy spawn --help` is complete
+and correct about its flags, and says nothing about the runtime identity the command needs. Capture
+discipline alone would never have found it — only running the command did. Where an operation below
+carries a precondition, it is recorded with the operation.
 
 **A version bump invalidates this table.** `/orchestrate-init` warns when the installed build differs
 from the pin; re-capture before dispatching rather than assuming a flag survived. Compozy has
@@ -38,8 +45,25 @@ shipped only prereleases — 21 in under two months — so this is a live risk, 
 
 | Operation | Command |
 | --- | --- |
+| `session_identity()` | `[ -n "$COMPOZY_SESSION_ID" ]` — an environment read, not a Compozy call |
 | `daemon_state()` | `compozy status -o json` → `.daemon.status == "running"` |
 | `diagnostics()` | `compozy doctor -o json` |
+
+**`session_identity()` gates every agent command, and a healthy daemon does not imply it.** Compozy
+answers `status`, `doctor`, `worktree` and `session list` from any shell, so a run can read as fully
+ready and still be unable to dispatch. `spawn` refuses before creating anything:
+
+```json
+{"error":{"code":"identity_required",
+          "message":"COMPOZY_SESSION_ID is required for agent commands",
+          "action":"run this command from a CompozyOS-managed agent session",
+          "exit_code":64}}
+```
+
+Observed 2026-08-30 from a plain Claude Code terminal, after `daemon_state()`, the config reads and
+the base-branch check had all passed. The remedy is not a flag — it is running the orchestration
+from a CompozyOS-managed session. Check this **first**, before any tracker read: it costs an
+environment lookup, and finding it after Phase 0 and Phase 1 wastes the whole read.
 
 There is **no `compozy daemon status`**. `compozy daemon` has exactly three subcommands — `bootstrap`,
 `start`, `stop` — and an invalid subcommand prints help and exits 0, so a check written against one
