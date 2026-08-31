@@ -168,21 +168,23 @@ The graph is **re-read on every wave computation** and never persisted between w
 contract-level rule, not a tracker preference: a cached graph drifts silently from what is actually
 merged. Trackers must not memoise, and phases must not carry a graph forward.
 
-## What a Linear tracker would have to supply
+## The third tracker, as built
 
-The contract admits a third tracker without a rewrite. For Linear, each operation maps to something
-Linear already has:
+The contract admitted a third tracker without a rewrite, and Linear was subsequently built and
+verified against a real workspace — **no phase reference changed**, which is the claim this
+boundary exists to make falsifiable.
 
-| Operation | What Linear must supply |
+| Operation | What Linear supplies |
 | --- | --- |
-| `resolve_group` | A Project (or Cycle) resolved from its identifier, its name, or its URL, all three landing on the same group, plus its description text returned verbatim |
-| `list_items` | The issues belonging to that Project, complete and paged to the end, each with its identifier, its human reference, its title, its body and its issue-type value as `kind` |
-| `read_blockers` | The `blocks` / `blocked by` issue relations, read as relations. Linear is expected to record these natively — unverified, and the first thing a Linear tracker must confirm against a real workspace |
-| `read_completion` | A boolean derived from the workflow state's **type** rather than its name, conjoined with a fact set by the work itself and not by hand, since Linear state names are workspace-authored and translated |
-| `mark_in_progress` | Optional. Linear can move an issue to a started state, so a Linear tracker may implement it — and the orchestrator must still run identically for a tracker that does not |
+| `resolve_group` | A Project resolved from its id, its name, or its URL slug, all three landing on the same group, with its description returned verbatim. Cycle was considered and rejected: a cycle is a time box that sweeps unrelated work together |
+| `list_items` | The issues belonging to that Project, cursor-paged to the end. Linear returns the `TEAM-123` identifier as the id, so it doubles as the human reference. `kind` is **absent** where a workspace types issues by label rather than a typed field |
+| `read_blockers` | The `blockedBy` issue relations, read as relations — **confirmed present** against a real chain, so this read is implemented rather than `UNAVAILABLE` |
+| `read_completion` | Two reads, not one. The workflow state's **type** (`completed`, never a name) conjoined with the merge state of the attached PR — which **Linear does not record**, so the second half is fetched from the forge |
+| `mark_in_progress` | Implemented, resolving a state by type at runtime. Two states can share the `started` type, so a name or id is never hardcoded |
 
-This table is the contract's obligation, not a plan to build one. The Linear tracker document
-records the same mapping from the tracker's side; nothing in this skill selects it.
+One assumption in the original table proved wrong and is worth keeping visible: it expected Linear's
+PR attachments to carry the merge fact. They carry the PR's URL and nothing about its state. The
+tracker document records the correction and the two-step it forces.
 
 ## Adding a tracker
 

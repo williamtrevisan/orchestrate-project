@@ -80,6 +80,43 @@ validation, because it is not an absolute path and TOML performs no expansion.
 `setup_state` becomes `"failed"` with `setup_error` set. Poll the project's own bootstrap marker
 (`project.bootstrap_marker` in `.orchestrate-project.json`) rather than trusting creation alone.
 
+### `setup_command` is user-global, and that shapes what may be written there
+
+There is **no per-project setup**. Verified against 0.3.0-beta.21: `config list` shows
+`worktrees.setup_command` as the only key of its kind, `compozy config path` reports
+`"scope": "user"` with a single target, `workspace edit` offers `--default-agent`, `--sandbox` and
+`--add-dir` but nothing for setup, `worktree create` takes no setup flag, and profiles carry
+identity (name, colour, icon) rather than configuration.
+
+So a project-specific command written there **runs for every repository on the machine**. Write a
+delegator that carries no project knowledge, and let each repository own its own bootstrap:
+
+```toml
+[worktrees]
+setup_command = "sh -c '[ -x ./scripts/worktree-setup.sh ] && exec ./scripts/worktree-setup.sh; true'"
+```
+
+The guard makes it a no-op wherever that script is absent, so one line serves every project, and the
+bootstrap itself is versioned and reviewable in the repository it belongs to. `/orchestrate-init`
+checks this key and offers exactly this command.
+
+**Whatever the hook invokes must exist on the base branch.** A worktree is cut from
+`origin/<base>` and contains only what is committed there, so a bootstrap script that is staged,
+stashed, or living on another branch is simply absent — and the guard above then makes its absence
+*silent*. Land the script before the first dispatch, not alongside it.
+
+### A restart-required setting may not be applicable from the CLI
+
+`compozy config set` reports `"lifecycle": "restart-required"` and `"applied": false` for some keys;
+`config reload` answers `"next_action": "restart-daemon"`. **`compozy daemon stop` refuses with
+`daemon is not running` when the daemon was started by the Compozy app rather than the CLI**, while
+`compozy status` reports it running with a pid — the two disagree because they mean different
+things, and `daemon start` then fails with `detached daemon exited before readiness` because one is
+already up.
+
+The setting stays pending in that case. Read back what is *live* rather than what the file says:
+`config get` reports the file's effective value, not the daemon's active generation.
+
 **Lifecycle states**: `pending` → `ready`, then `failed`, `missing`, `removing`, `removed`,
 `dismissed`. Only `ready` accepts a session.
 

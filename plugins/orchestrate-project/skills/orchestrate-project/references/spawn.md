@@ -31,6 +31,14 @@ The middle two are the difference between a usable worktree and a bare one:
 - **A failed setup is not a failed worktree.** The checkout stays `ready` while `setup_state`
   becomes `"failed"`. Nothing surfaces unless you look, so the readiness test is the project's own
   marker, not the worktree's state.
+- **Whatever `setup_command` invokes must already be on the base branch.** The key being set is not
+  the same fact as the bootstrap being reachable: `setup_command` is user-global and is normally a
+  delegator to a script inside the repository ([runner](runner.md)), and a worktree cut from
+  `origin/<base>` contains only what is committed there. A script that is uncommitted, or committed
+  only on the branch about to be built, is absent at the moment it is needed — and because the
+  delegator is guarded, its absence is silent: the tree comes up bare and the first symptom is an
+  implementer that cannot run the gate. Confirm the script exists on the base
+  (`git cat-file -e origin/<base>:<path>`) before dispatching the first item of a run.
 
 **Never read a project fact from this file.** The gate command, its working directory and the
 bootstrap marker come from `project.*` in `.orchestrate-project.json`, written by
