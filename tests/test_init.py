@@ -28,7 +28,11 @@ import init  # noqa: E402
 
 @contextlib.contextmanager
 def stubbed_runtime(
-    version="compozy 0.3.0-beta.21", tracker_ok=True, daemon=True, binary=True
+    version="compozy 0.3.0-beta.21",
+    tracker_ok=True,
+    daemon=True,
+    binary=True,
+    setup_command="sh -c 'true'",
 ):
     """Replace every external call with a scripted answer.
 
@@ -50,16 +54,47 @@ def stubbed_runtime(
 
     original_run, original_which = init._run, shutil.which
     original_home = os.path.expanduser
+    holder = tempfile.mkdtemp()
+    config = os.path.join(holder, "config.toml")
+    # A real file with real content: the bootstrap stage only needs it to exist,
+    # but the worktree_setup stage reads it, so pointing at an arbitrary existing
+    # file would report every setup command as unset.
+    with open(config, "w", encoding="utf-8") as handle:
+        if setup_command is not None:
+            handle.write(f'[worktrees]\nsetup_command = "{setup_command}"\n')
     try:
         init._run = fake_run
         shutil.which = lambda name: f"/usr/bin/{name}" if binary else None
         os.path.expanduser = lambda path: (
-            __file__ if path == "~/.compozy/config.toml" else original_home(path)
+            config if path == "~/.compozy/config.toml" else original_home(path)
         )
         yield
     finally:
         init._run, shutil.which = original_run, original_which
         os.path.expanduser = original_home
+        shutil.rmtree(holder, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def shipped_tracker(unverified=None, name="probe-target"):
+    """Ship one tracker document for the duration of a test.
+
+    `cli` over `true` so the probe genuinely passes: the behaviour under test is
+    the selectability gate, which must not be reachable only because a probe
+    happened to fail for some other reason.
+    """
+    block = {"transport": "cli", "command": ["true"], "requires": {}}
+    if unverified:
+        block["unverified"] = unverified
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, f"{name}.md"), "w", encoding="utf-8") as handle:
+            handle.write(f"# t\n\n```tracker-config\n{json.dumps(block)}\n```\n")
+        original = init.TRACKERS_DIR
+        try:
+            init.TRACKERS_DIR = tmp
+            yield name
+        finally:
+            init.TRACKERS_DIR = original
 
 
 class ShippedTrackers(unittest.TestCase):
@@ -396,6 +431,72 @@ class WriteSubcommand(unittest.TestCase):
             with open(path, encoding="utf-8") as handle:
                 self.assertEqual(json.load(handle)["tracker"], "github")
 
+    def test_refuses_a_tracker_its_own_document_declares_unverified(self):
+        """A tracker document that says it is a contract note is not selectable.
+
+        contract.md: "A tracker whose required reads are unimplemented is not
+        selectable." That rule was prose addressed to the agent driving this
+        script, and prose is not a guard -- the script offered such a tracker,
+        accepted it, and wrote a configuration selecting it. The refusal has to
+        live here, where it cannot be forgotten.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            with shipped_tracker(unverified="never run against a workspace") as name:
+                err = io.StringIO()
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(err):
+                        code = init.main(
+                            ["--root", tmp, "write", "--tracker", name,
+                             "--gate-command", "make test", "--today", "2026-01-01"]
+                        )
+            self.assertEqual(code, 5)
+            self.assertIn("contract note", err.getvalue())
+            self.assertFalse(os.path.isfile(os.path.join(tmp, init.CONFIG_NAME)))
+
+    def test_an_unverified_tracker_is_selectable_only_knowingly(self):
+        """The escape hatch exists, but it has to be typed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with shipped_tracker(unverified="not yet observed") as name:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        code = init.main(
+                            ["--root", tmp, "write", "--tracker", name,
+                             "--gate-command", "make test", "--today", "2026-01-01",
+                             "--allow-unverified-tracker"]
+                        )
+            self.assertEqual(code, 0)
+
+    def test_a_verified_tracker_is_written_without_the_flag(self):
+        """The gate must not catch trackers that carry no `unverified` key."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with shipped_tracker(unverified=None) as name:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        code = init.main(
+                            ["--root", tmp, "write", "--tracker", name,
+                             "--gate-command", "make test", "--today", "2026-01-01"]
+                        )
+            self.assertEqual(code, 0)
+
+    def test_a_flat_tracker_config_names_the_shape_rather_than_the_keys(self):
+        """The failure mode is a parse that succeeds and a probe that misleads.
+
+        A flat object is valid JSON, so the only symptom is the probe reporting
+        every key missing -- which reads as "you forgot the values" rather than
+        "the outer key is absent".
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(err):
+                    code = init.main(
+                        ["--root", tmp, "write", "--tracker", "jira",
+                         "--gate-command", "make test",
+                         "--tracker-config", '{"site": "acme.atlassian.net"}']
+                    )
+            self.assertEqual(code, 2)
+            self.assertIn("keyed by tracker name", err.getvalue())
+
     def test_refuses_to_overwrite_without_force(self):
         with tempfile.TemporaryDirectory() as tmp:
             with contextlib.redirect_stdout(io.StringIO()):
@@ -653,7 +754,9 @@ class RunnerReadinessChain(unittest.TestCase):
     def test_stages_are_reported_in_dependency_order(self):
         with stubbed_runtime():
             names = [st["stage"] for st in init.probe_runner_stages(deep=True)]
-        expected = ["binary", "version", "bootstrap", "daemon", "doctor"]
+        expected = [
+            "binary", "version", "bootstrap", "daemon", "worktree_setup", "doctor",
+        ]
         self.assertEqual(names, expected[: len(names)])
 
     def test_the_chain_stops_at_the_first_failure(self):
@@ -685,6 +788,57 @@ class RunnerReadinessChain(unittest.TestCase):
             self.assertIsNone(result["blocking_stage"])
         else:
             self.assertIsNotNone(result["blocking_stage"])
+
+
+class WorktreeSetupStage(unittest.TestCase):
+    """Dispatch requires a worktree bootstrap, so readiness has to include it.
+
+    A worktree receives only tracked files. Whatever the gate needs that
+    .gitignore excludes does not exist until setup_command runs, and its absence
+    fails in the worst shape available: the checkout stays `ready` while
+    setup_state goes `failed`, so nothing surfaces until an implementer cannot
+    run the gate -- hours after init reported the runner ready.
+    """
+
+    def test_an_unset_setup_command_blocks_readiness(self):
+        with stubbed_runtime(setup_command=None):
+            result = init.probe_runner("0.3.0-beta.21")
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["blocking_stage"], "worktree_setup")
+
+    def test_an_unset_setup_command_offers_the_command_that_sets_it(self):
+        with stubbed_runtime(setup_command=None):
+            stages = init.probe_runner_stages(deep=True)
+        stage = next(st for st in stages if st["stage"] == "worktree_setup")
+        self.assertIn("config set worktrees.setup_command", stage["suggested_command"])
+
+    def test_a_configured_setup_command_is_reported_verbatim(self):
+        with stubbed_runtime(setup_command="make bootstrap"):
+            stages = init.probe_runner_stages(deep=True)
+        stage = next(st for st in stages if st["stage"] == "worktree_setup")
+        self.assertTrue(stage["ok"])
+        self.assertEqual(stage["detail"], "make bootstrap")
+
+    def test_the_suggested_command_delegates_rather_than_hardcoding_a_project(self):
+        """The hook is user-global, so it must carry no project knowledge.
+
+        Compozy has no per-project setup key, so a project-specific command
+        written there runs for every repository on the machine.
+        """
+        self.assertIn(init.SETUP_SCRIPT, init.SETUP_DELEGATOR)
+        self.assertIn("true", init.SETUP_DELEGATOR)
+
+    def test_a_missing_config_file_reads_as_unset_rather_than_raising(self):
+        original = os.path.expanduser
+        try:
+            os.path.expanduser = lambda path: (
+                "/nonexistent/compozy/config.toml"
+                if path == "~/.compozy/config.toml"
+                else original(path)
+            )
+            self.assertIsNone(init.worktree_setup_command())
+        finally:
+            os.path.expanduser = original
 
 
 class SuggestedCommandParsing(unittest.TestCase):

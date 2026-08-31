@@ -31,7 +31,20 @@ Read the report. It carries the shipped tracker set, each tracker's probe verdic
 | `version` | `compozy version` returns a readable token | Present-but-unreadable is unverified, not usable |
 | `bootstrap` | `~/.compozy/config.toml` exists | `compozy install --provider claude -o json` |
 | `daemon` | `compozy status` reports the daemon running | `compozy daemon start` |
+| `worktree_setup` | `worktrees.setup_command` is set | The delegator command the report names |
 | `doctor` | `compozy doctor` runs | Whatever Compozy itself suggests |
+
+`worktree_setup` is in the chain because [Phase 3](../skills/orchestrate-project/references/spawn.md)
+hard-requires it and nothing else checks it. A worktree receives only tracked files, so whatever the
+gate needs that `.gitignore` excludes — a virtualenv, `node_modules` — does not exist until that
+command runs, and its absence fails in the worst available shape: the checkout stays `ready` while
+`setup_state` goes `failed`, so nothing surfaces until an implementer cannot run the gate, hours
+after this command reported the runner ready.
+
+The suggested command is a **delegator**, not a project's build. Compozy has no per-project setup
+key, so anything written there runs for every repository on the machine; the delegator invokes a
+script each repository owns. Tell the operator they still need that script committed **on the base
+branch** — the guard that makes the delegator safe elsewhere also makes its absence silent here.
 
 **Act on `blocking_stage` only.** The stages after it are consequences, not separate problems, and the chain stops there rather than reporting a cascade.
 
@@ -74,7 +87,11 @@ Several keys say *"offer what the discover tool returns"* rather than *"ask"*. H
 tool and present the results as options. A key with a discoverable source should never be typed.
 
 A tracker whose block carries `unverified` ships as a contract note rather than an observed
-implementation. **Say so before writing a configuration that selects it.**
+implementation, and **the script refuses to write a configuration that selects it** — exit 5,
+quoting the document's own reason. That refusal used to be this sentence alone, addressed to you,
+and a real run selected such a tracker anyway: prose is not a guard. To make one selectable, verify
+its four reads against a real workspace and remove the `unverified` key from its document.
+`--allow-unverified-tracker` exists for a deliberate exception and has to be typed.
 
 ### Verifying and discovering an MCP tracker
 
@@ -163,6 +180,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init.py" --root . write \
 | 2 | Usage error | The argument that was wrong |
 | 3 | Configuration exists | Show the current value and offer `--force` |
 | 4 | No resolved tracker or gate command | Name the missing key |
+| 5 | The tracker declares itself unverified | Report what its document says, and that verifying it — not forcing past it — is the fix |
 
 **A non-zero exit is never worked around.** Do not write the file by hand, and do not retry with a value the operator did not choose.
 

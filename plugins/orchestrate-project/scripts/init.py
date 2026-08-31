@@ -225,6 +225,7 @@ def probe_tracker(name, tracker_config=None, root="."):
             "exit_code": None,
             "stderr": "no transport declared for this tracker",
             "ok": False,
+            "unverified": None,
             "verify_in_session": False,
             "verify_tool": None,
             "discover_tool": None,
@@ -238,6 +239,7 @@ def probe_tracker(name, tracker_config=None, root="."):
         "tracker": name,
         "transport": kind,
         "missing_config": missing,
+        "unverified": transport.get("unverified"),
         "verify_in_session": False,
         "verify_tool": transport.get("verify_tool"),
         "verify_tool_prefix": transport.get("verify_tool_prefix"),
@@ -360,6 +362,52 @@ def _suggested_command(output):
     return diagnostic.get("suggested_command") or payload.get("suggested_command")
 
 
+#: The project-owned script the global hook delegates to.
+SETUP_SCRIPT = "./scripts/worktree-setup.sh"
+
+#: Compozy's `worktrees.setup_command` is user-global: there is no per-workspace
+#: key, `worktree create` takes no setup flag, and profiles carry identity rather
+#: than configuration (checked against 0.3.0-beta.21). A project-specific command
+#: written there therefore runs for every repository on the machine.
+#:
+#: So the global hook is a delegator carrying no project knowledge, and the real
+#: bootstrap is a script each repository owns, versioned and reviewable. The
+#: guard makes it a no-op wherever that script is absent.
+SETUP_DELEGATOR = (
+    f"sh -c '[ -x {SETUP_SCRIPT} ] && exec {SETUP_SCRIPT}; true'"
+)
+
+SETUP_DELEGATOR_COMMAND = (
+    f'{RUNNER} config set worktrees.setup_command "{SETUP_DELEGATOR}"'
+)
+
+
+def worktree_setup_command():
+    """Compozy's configured worktree bootstrap, or None when it is unset.
+
+    A worktree receives only tracked files, so whatever the project's gate needs
+    that .gitignore excludes - a virtualenv, node_modules - does not exist until
+    this runs. Phase 3 requires it, and its absence fails in the worst possible
+    shape: the checkout stays `ready` while setup_state goes `failed`, so nothing
+    surfaces until an implementer cannot run the gate.
+    """
+    path = os.path.expanduser("~/.compozy/config.toml")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+    except OSError:
+        return None
+    found = re.search(
+        r"^\s*setup_command\s*=\s*(\"\"\"(.*?)\"\"\"|'''(.*?)'''|\"(.*?)\"|'(.*?)')",
+        body,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not found:
+        return None
+    value = next((g for g in found.groups()[1:] if g is not None), "")
+    return value.strip() or None
+
+
 def _stage(name, ok, detail, command=None):
     return {"stage": name, "ok": ok, "detail": detail, "suggested_command": command}
 
@@ -425,7 +473,19 @@ def probe_runner_stages(pin=None, deep=False):
             None if running else (_suggested_command(out) or f"{RUNNER} daemon start"),
         )
     )
-    if not running or not deep:
+    if not running:
+        return stages
+
+    setup = worktree_setup_command()
+    stages.append(
+        _stage(
+            "worktree_setup",
+            bool(setup),
+            setup or "worktrees.setup_command is unset",
+            None if setup else SETUP_DELEGATOR_COMMAND,
+        )
+    )
+    if not setup or not deep:
         return stages
 
     code, out = _run([RUNNER, "doctor", "-o", "json"])
@@ -715,6 +775,37 @@ def cmd_write(args):
         if not isinstance(tracker_config, dict):
             print("init: --tracker-config must be a JSON object", file=sys.stderr)
             return 2
+        # A flat object is the easy mistake: it parses, so the only symptom is
+        # the probe reporting every key missing, which reads as "you forgot the
+        # values" rather than "the shape is wrong". Name the real cause here.
+        declared = set((read_tracker_declaration(args.tracker) or {}).get("requires", {}))
+        if (
+            tracker_config
+            and args.tracker not in tracker_config
+            and declared & set(tracker_config)
+        ):
+            print(
+                f"init: --tracker-config looks flat; it must be keyed by tracker "
+                f'name: {{"{args.tracker}": {{...}}}}',
+                file=sys.stderr,
+            )
+            return 2
+
+    unverified = (read_tracker_declaration(args.tracker) or {}).get("unverified")
+    if unverified and not args.allow_unverified_tracker:
+        print(
+            f"init: {args.tracker!r} ships as a contract note, not an observed "
+            "implementation, and is not selectable.",
+            file=sys.stderr,
+        )
+        print(f"  its document says: {unverified}", file=sys.stderr)
+        print(
+            "  Verify it against a real workspace and remove the `unverified` key "
+            "from its tracker-config block, or pass --allow-unverified-tracker to "
+            "select it knowingly.",
+            file=sys.stderr,
+        )
+        return 5
 
     probe = probe_tracker(args.tracker, tracker_config, args.root)
     if not probe["ok"] and not probe["verify_in_session"]:
@@ -825,13 +916,22 @@ def main(argv=None):
     p.add_argument(
         "--tracker-config",
         default=None,
-        help="JSON object of per-project tracker connection settings "
-             "(site, cloud id, workspace). Never a credential - reference the "
-             "environment variable that holds one instead.",
+        help="JSON object of per-project tracker connection settings, keyed by "
+             'tracker name: {"jira": {"site": "...", "project_key": "..."}}. '
+             "The outer key is required - a flat object reads as empty and the "
+             "probe then reports every key missing. Never a credential; "
+             "reference the environment variable that holds one instead.",
     )
     p.add_argument("--pin", default=None, help="Compozy version this repo targets")
     p.add_argument("--today", default=None, help="Override the stamp (tests)")
     p.add_argument("--force", action="store_true")
+    p.add_argument(
+        "--allow-unverified-tracker",
+        action="store_true",
+        help="Select a tracker whose document still declares itself unverified. "
+             "Its reads are a specification nobody has run, so a wave computed "
+             "through it may be confident and fictional.",
+    )
     p.add_argument("-o", "--output", default="human", choices=["human", "json"])
     p.set_defaults(fn=cmd_write)
 
