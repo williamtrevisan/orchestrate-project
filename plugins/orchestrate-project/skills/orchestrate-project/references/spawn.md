@@ -15,13 +15,39 @@ work.
 
 ## 1. Preflight — refuse rather than dispatch into a broken setup
 
-All four must hold. Any miss: report **which** one failed, and dispatch nothing.
+All six must hold. Any miss: report **which** one failed, and dispatch nothing.
 
 ```
-runner: daemon_state()        → .daemon.status == "running"
-config: .orchestrate-project.json parses, and carries project.gate_command
-config: worktrees.setup_command is set in Compozy's own config
-git:    the base branch resolves on the remote
+session: COMPOZY_SESSION_ID is set in this session's environment
+runner:  daemon_state()        → .daemon.status == "running"
+runner:  the repository is a registered workspace
+config:  .orchestrate-project.json parses, and carries project.gate_command
+config:  worktrees.setup_command is set in Compozy's own config
+git:     the base branch resolves on the remote
+```
+
+**The first one decides whether this session can dispatch at all.** `compozy spawn` is an agent
+command: outside a runner-managed session it refuses with
+
+```
+identity_required — COMPOZY_SESSION_ID is required for agent commands
+```
+
+so **orchestration runs from inside a Compozy session, or it does not dispatch.** Every other
+preflight can pass — daemon up, worktree bootstrapped and `ready`, base branch resolved — and the
+run still stops at the final step, having created a worktree it cannot use. Check it first, before
+anything is built.
+
+`/orchestrate-init` reports this as `runner.dispatch_identity` rather than as a readiness stage,
+because configuring a repository from one session and orchestrating it from another is normal; the
+question only becomes binding here.
+
+**The workspace registration is the second thing built infrastructure depends on.**
+`worktree create` resolves its workspace from the cwd and fails outright on an unregistered
+directory:
+
+```
+compozy workspace add "<repository path>"
 ```
 
 The middle two are the difference between a usable worktree and a bare one:

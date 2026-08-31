@@ -33,6 +33,7 @@ def stubbed_runtime(
     daemon=True,
     binary=True,
     setup_command="sh -c 'true'",
+    workspaces=None,
 ):
     """Replace every external call with a scripted answer.
 
@@ -50,6 +51,8 @@ def stubbed_runtime(
             return (0, '{"daemon": {"status": "running"}}') if daemon else (1, "{}")
         if argv[:2] == [init.RUNNER, "doctor"]:
             return 0, "{}"
+        if argv[:2] == [init.RUNNER, "workspace"]:
+            return (0, json.dumps(workspaces if workspaces is not None else []))
         return (0, "") if tracker_ok else (1, "not authenticated")
 
     original_run, original_which = init._run, shutil.which
@@ -752,10 +755,15 @@ class RunnerReadinessChain(unittest.TestCase):
     reported as an ordered chain because each stage gates the next."""
 
     def test_stages_are_reported_in_dependency_order(self):
-        with stubbed_runtime():
-            names = [st["stage"] for st in init.probe_runner_stages(deep=True)]
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[{"root_dir": tmp}]):
+                names = [
+                    st["stage"]
+                    for st in init.probe_runner_stages(deep=True, root=tmp)
+                ]
         expected = [
-            "binary", "version", "bootstrap", "daemon", "worktree_setup", "doctor",
+            "binary", "version", "bootstrap", "daemon", "worktree_setup",
+            "workspace", "doctor",
         ]
         self.assertEqual(names, expected[: len(names)])
 
@@ -839,6 +847,95 @@ class WorktreeSetupStage(unittest.TestCase):
             self.assertIsNone(init.worktree_setup_command())
         finally:
             os.path.expanduser = original
+
+
+class WorkspaceRegistrationStage(unittest.TestCase):
+    """`worktree create` resolves its workspace from the cwd and refuses an
+    unregistered directory -- after tickets, configuration and bootstrap are all
+    done, which is the most expensive place to find out."""
+
+    def test_an_unregistered_repository_blocks_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[]):
+                result = init.probe_runner("0.3.0-beta.21", root=tmp)
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["blocking_stage"], "workspace")
+
+    def test_an_unregistered_repository_offers_the_command_that_registers_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[]):
+                stages = init.probe_runner_stages(deep=True, root=tmp)
+        stage = next(st for st in stages if st["stage"] == "workspace")
+        self.assertIn("workspace add", stage["suggested_command"])
+        self.assertIn(tmp, stage["suggested_command"])
+
+    def test_a_registered_repository_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[{"root_dir": tmp}]):
+                self.assertTrue(init.workspace_registered(tmp))
+
+    def test_another_repositorys_registration_does_not_count(self):
+        """Matching loosely would report ready for a directory the runner has
+        never seen, which fails at create time with nothing to point at."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[{"root_dir": "/somewhere/else"}]):
+                self.assertFalse(init.workspace_registered(tmp))
+
+    def test_unparseable_output_reads_as_unregistered_rather_than_raising(self):
+        with stubbed_runtime():
+            original = init._run
+            try:
+                init._run = lambda argv: (0, "not json")
+                self.assertFalse(init.workspace_registered("."))
+            finally:
+                init._run = original
+
+
+class DispatchIdentity(unittest.TestCase):
+    """`compozy spawn` is an agent command: it refuses outside a runner-managed
+    session with `identity_required`. Everything else can pass and dispatch
+    still fails, so the fact is reported rather than inferred."""
+
+    def test_an_unset_session_id_is_reported_as_unable_to_dispatch(self):
+        original = os.environ.pop("COMPOZY_SESSION_ID", None)
+        try:
+            result = init.dispatch_identity()
+            self.assertFalse(result["ok"])
+            self.assertIn("COMPOZY_SESSION_ID", result["detail"])
+        finally:
+            if original is not None:
+                os.environ["COMPOZY_SESSION_ID"] = original
+
+    def test_a_session_id_is_reported_as_able_to_dispatch(self):
+        original = os.environ.get("COMPOZY_SESSION_ID")
+        try:
+            os.environ["COMPOZY_SESSION_ID"] = "sess_abc123"
+            result = init.dispatch_identity()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["session_id"], "sess_abc123")
+        finally:
+            if original is None:
+                os.environ.pop("COMPOZY_SESSION_ID", None)
+            else:
+                os.environ["COMPOZY_SESSION_ID"] = original
+
+    def test_it_is_not_a_readiness_stage(self):
+        """Configuring from one session and orchestrating from another is normal.
+
+        Failing readiness for it would be a false alarm about the machine, and a
+        gate that cries wolf is one people learn to skip.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[{"root_dir": tmp}]):
+                stages = init.probe_runner_stages(deep=True, root=tmp)
+        self.assertNotIn("dispatch_identity", [st["stage"] for st in stages])
+
+    def test_the_runner_report_carries_it_either_way(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with stubbed_runtime(workspaces=[{"root_dir": tmp}]):
+                result = init.probe_runner("0.3.0-beta.21", root=tmp)
+        self.assertIn("dispatch_identity", result)
+        self.assertIn("ok", result["dispatch_identity"])
 
 
 class SuggestedCommandParsing(unittest.TestCase):

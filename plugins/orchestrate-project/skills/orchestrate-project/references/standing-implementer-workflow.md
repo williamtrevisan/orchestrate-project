@@ -67,13 +67,14 @@ check on a draft is expected mid-flight and is fixed as it appears, not swept up
   fix in two open PRs, which conflicts on rebase and hides the defect from the review that should
   have caught it. Report it by item reference and carry on.
 
-**5. Update the docs.** Run `live-docs-sync` for changes to real mechanisms or business rules.
+**5. Update the docs, where this project asks for it.** Your assignment's Definition of Done is
+derived from the project's own conventions document, so it — not this page — names whether
+documentation is expected, where it lives, and whether CI enforces it.
 
-**`docs-check.yml` enforces this and will fail your PR.** Any PR carrying a `feat:` or `fix:`
-commit that changes no file under `docs/` fails the check. A PR whose commits are all `chore:`,
-`refactor:`, `test:` or `ci:` is exempt and exits before the check runs. A second, unconditional
-job re-resolves every document `docs/context/01-agent-entrypoint.md` links to and fails naming any
-that has gone missing — so moving or renaming a doc means fixing that entrypoint in the same PR.
+**Do what your assignment says, and nothing this page invents.** If it names a documentation skill
+or a docs check, follow it. If it is silent, this project has no such requirement and you write no
+docs to satisfy a rule that does not exist. A step performed for another project's convention is
+wasted work at best, and a confusing diff at worst.
 
 **6. Open a draft PR on your first commit, then keep pushing into it.**
 
@@ -103,17 +104,16 @@ anywhere else silently unstacks your PR** and shows your diff on top of work tha
 base — the orchestrator checks `baseRefName` for exactly this and will refuse to release anything
 built on you.
 
-**Where the repository ships a pull-request skill, use it instead of raw `gh pr create`.** In this
-one that is **`live-docs-pr-create`**, which generates the body through `live-docs-pr-description`
-(reading the diff and the project's context map) and then opens the PR. A hand-written body drifts
-from whatever convention the project settled on, and the skill exists precisely so it does not.
+**Where the repository ships a pull-request skill, use it instead of raw `gh pr create`.** A
+hand-written body drifts from whatever convention the project settled on, and such a skill exists
+precisely so it does not. Look for one before opening your first PR — your assignment names it if
+the project has one. If it exists but cannot express something you need — a draft, or a base branch
+that is not the default — use it for the body and fall back to `gh pr create` for the mechanics
+rather than abandoning it entirely.
 
-Check for such a skill before opening your first PR. If one exists and cannot express something you
-need — a draft, or a base branch that is not the default — use it for the body and fall back to
-`gh pr create` for the mechanics rather than abandoning it entirely.
-
-Title references the item. This repository has no
-pull-request template and no review-triggering label, so add neither.
+Title references the item. Follow the project's own pull-request template and labelling rules where
+it has them, and add neither where it does not — again, from your assignment rather than from this
+page.
 
 **The draft exists so progress is visible while you work, not because the work is done.** From
 here on, every atomic commit of the implement → gate → commit cycle is pushed to the same branch.

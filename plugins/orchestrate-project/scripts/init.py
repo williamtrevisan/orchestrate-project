@@ -408,11 +408,62 @@ def worktree_setup_command():
     return value.strip() or None
 
 
+def workspace_registered(root="."):
+    """Whether this repository is a workspace the runner knows.
+
+    `worktree create` resolves its workspace from the cwd and fails outright on
+    an unregistered directory - after tickets, configuration and bootstrap are
+    all done, which is the most expensive place to discover it.
+    """
+    code, out = _run([RUNNER, "workspace", "list", "-o", "json"])
+    if code != 0:
+        return False
+    try:
+        payload = json.loads(out or "[]")
+    except ValueError:
+        return False
+    entries = payload if isinstance(payload, list) else payload.get("workspaces", [])
+    target = os.path.abspath(root)
+    return any(
+        os.path.abspath(entry.get("root_dir", "")) == target
+        for entry in entries
+        if isinstance(entry, dict)
+    )
+
+
+def dispatch_identity():
+    """Whether this session can spawn children at all.
+
+    `compozy spawn` is an agent command: it requires COMPOZY_SESSION_ID and
+    refuses with `identity_required` outside a runner-managed session. So
+    orchestration dispatches only from inside one.
+
+    Deliberately NOT a stage in the readiness chain. The chain describes the
+    machine, and this describes the session reading it - configuring a
+    repository from one session and orchestrating it from another is a normal
+    thing to do, and failing readiness for it would be a false alarm. Reported
+    as its own fact so the command can say so plainly, and checked again at
+    dispatch, where it is always the right question.
+    """
+    session = os.environ.get("COMPOZY_SESSION_ID")
+    return {
+        "ok": bool(session),
+        "session_id": session,
+        "detail": (
+            "this session can spawn implementers"
+            if session
+            else "COMPOZY_SESSION_ID is unset: `compozy spawn` fails here with "
+                 "identity_required, so dispatch must run from inside a "
+                 f"{RUNNER}-managed session"
+        ),
+    }
+
+
 def _stage(name, ok, detail, command=None):
     return {"stage": name, "ok": ok, "detail": detail, "suggested_command": command}
 
 
-def probe_runner_stages(pin=None, deep=False):
+def probe_runner_stages(pin=None, deep=False, root="."):
     """Every prerequisite between a bare machine and a dispatchable runtime.
 
     Reported as an ordered chain because each stage gates the next: a daemon
@@ -485,7 +536,19 @@ def probe_runner_stages(pin=None, deep=False):
             None if setup else SETUP_DELEGATOR_COMMAND,
         )
     )
-    if not setup or not deep:
+    if not setup:
+        return stages
+
+    registered = workspace_registered(root)
+    stages.append(
+        _stage(
+            "workspace",
+            registered,
+            "registered" if registered else f"{os.path.abspath(root)} is not registered",
+            None if registered else f'{RUNNER} workspace add "{os.path.abspath(root)}"',
+        )
+    )
+    if not registered or not deep:
         return stages
 
     code, out = _run([RUNNER, "doctor", "-o", "json"])
@@ -496,9 +559,9 @@ def probe_runner_stages(pin=None, deep=False):
     return stages
 
 
-def probe_runner(pin=None, deep=False):
+def probe_runner(pin=None, deep=False, root="."):
     """Report Compozy's presence and version. Absence is a fact, not an error."""
-    stages = probe_runner_stages(pin, deep=deep)
+    stages = probe_runner_stages(pin, deep=deep, root=root)
     blocking = next((st for st in stages if not st["ok"]), None)
     if not shutil.which(RUNNER):
         return {
@@ -511,6 +574,7 @@ def probe_runner(pin=None, deep=False):
             "stages": stages,
             "ready": False,
             "blocking_stage": blocking["stage"] if blocking else None,
+            "dispatch_identity": dispatch_identity(),
             "advice": (
                 f"{RUNNER} is not installed. Dispatch cannot run until it is; "
                 "install it yourself rather than having this write a config that "
@@ -547,6 +611,7 @@ def probe_runner(pin=None, deep=False):
         "stages": stages,
         "ready": blocking is None,
         "blocking_stage": blocking["stage"] if blocking else None,
+        "dispatch_identity": dispatch_identity(),
         "advice": advice,
     }
 
@@ -680,7 +745,7 @@ def cmd_probe(args):
             probe_tracker(name, existing_tracker_config, args.root)
             for name in trackers
         ],
-        "runner": probe_runner(args.pin, deep=args.deep),
+        "runner": probe_runner(args.pin, deep=args.deep, root=args.root),
         "gate_candidates": detect_gate_commands(args.root),
         "constitution_candidates": detect_constitutions(args.root),
         "config_exists": config is not None,
@@ -716,6 +781,12 @@ def _print_human(report):
             print(f"        next: {stage['suggested_command']}")
     if runner["pin_state"] == "drift":
         print(f"  WARN  pin        {runner['version']} vs pinned {runner['pin']}")
+    identity = runner.get("dispatch_identity") or {}
+    if identity and not identity.get("ok"):
+        # Not a stage: the chain describes the machine, this describes the
+        # session reading it. Still worth saying out loud, because everything
+        # else can pass and dispatch still refuses.
+        print(f"  WARN  dispatch   {identity['detail']}")
     if runner["advice"]:
         print(f"        {runner['advice']}")
     gates = report["gate_candidates"]

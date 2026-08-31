@@ -168,3 +168,39 @@ class InitPerformsRunnerSetup(unittest.TestCase):
 
     def test_it_confirms_before_each_step_rather_than_once(self):
         self.assertIn("never chain past a refusal", self.text.lower())
+
+
+class StandingWorkflowIsProjectAgnostic(unittest.TestCase):
+    """Baked-in default 0: "Nothing about a project is hardcoded."
+
+    The standing workflow is embedded verbatim in every dispatch prompt, for
+    every repository. It shipped naming one project's skills and one project's
+    CI job as though they were universal, so an implementer in any other
+    repository was told to run tooling that does not exist there and warned
+    about a check that would never run. Every project-specific fact reaches an
+    implementer through its assignment, which is derived from that project's own
+    configuration.
+    """
+
+    def setUp(self):
+        self.path = os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "standing-implementer-workflow.md",
+        )
+        self.text = read(self.path)
+
+    def test_it_names_no_project_specific_skill_or_workflow_file(self):
+        for borrowed in ("live-docs-sync", "live-docs-pr-create",
+                         "live-docs-pr-description", "docs-check.yml"):
+            self.assertNotIn(
+                borrowed, self.text,
+                f"{borrowed} belongs to one project, not to every dispatch prompt",
+            )
+
+    def test_it_defers_project_facts_to_the_assignment(self):
+        lowered = self.text.lower()
+        self.assertIn("your assignment", lowered)
+
+    def test_the_gate_still_comes_from_configuration(self):
+        """The one project fact it may name is where to read project facts."""
+        self.assertIn("project.gate_command", self.text)
