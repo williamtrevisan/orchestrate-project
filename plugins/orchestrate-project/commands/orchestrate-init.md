@@ -32,6 +32,7 @@ Read the report. It carries the shipped tracker set, each tracker's probe verdic
 | `bootstrap` | `~/.compozy/config.toml` exists | `compozy install --provider claude -o json` |
 | `daemon` | `compozy status` reports the daemon running | `compozy daemon start` |
 | `worktree_setup` | `worktrees.setup_command` is set | The delegator command the report names |
+| `workspace` | the repository is registered with the runner | `compozy workspace add "<path>"` |
 | `doctor` | `compozy doctor` runs | Whatever Compozy itself suggests |
 
 `worktree_setup` is in the chain because [Phase 3](../skills/orchestrate-project/references/spawn.md)
@@ -47,6 +48,17 @@ script each repository owns. Tell the operator they still need that script commi
 branch** — the guard that makes the delegator safe elsewhere also makes its absence silent here.
 
 **Act on `blocking_stage` only.** The stages after it are consequences, not separate problems, and the chain stops there rather than reporting a cascade.
+
+### `dispatch_identity` is reported beside the chain, not in it
+
+`runner.dispatch_identity` answers a different question: whether **this session** can spawn children
+at all. `compozy spawn` is an agent command and refuses outside a runner-managed session with
+`identity_required`, so orchestration dispatches only from inside one.
+
+It is deliberately not a stage — the chain describes the machine, and configuring a repository from
+one session while orchestrating it from another is normal, so failing readiness for it would be a
+false alarm. **Say it out loud anyway when `ok` is false**, because every stage can pass and
+dispatch still refuses: the operator needs to know the run has to start somewhere else.
 
 **Prefer the `suggested_command` in the report over anything you know.** Compozy names its own recovery command in its JSON errors; a command written here would drift from the runtime it repairs.
 

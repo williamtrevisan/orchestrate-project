@@ -129,6 +129,24 @@ only when `cleanup.safe` is true. Removal deletes the linked checkout, never the
 | --- | --- |
 | `spawn(agent, worktree, prompt, provider, model, effort)` | `compozy spawn --agent <agent> --ttl-seconds <n> --workspace <worktree-path> --provider claude --model <model> --reasoning-effort <effort> --prompt-overlay "<prompt>" --name <ITEM-REF> -o json` |
 
+**`spawn` requires the caller to be a runner-managed session.** It is an agent command, and outside
+one it refuses before doing anything:
+
+```
+identity_required — COMPOZY_SESSION_ID is required for agent commands
+action: run this command from a CompozyOS-managed agent session
+```
+
+So the orchestrating session must itself be a Compozy session — [Phase 3](spawn.md) checks this
+first, because every other preflight can pass while this one makes dispatch impossible.
+
+`compozy session new --worktree <name>` creates a session from outside one, and
+`compozy session prompt <id> "<text>" --provider … --model … --reasoning-effort …` carries the tier,
+so the pair looks like a substitute. **It is not a complete one:** `session new` has no
+`--mcp-server`, so a tracker reached over MCP is unreachable from the child, and the tracker writes
+the [standing workflow](standing-implementer-workflow.md) expects then fail as silently skipped
+steps. Reach for it only knowing that, and say so in the run report.
+
 - **`--ttl-seconds` is mandatory.** There is no default; omitting it is an error. Size it to the
   item, and remember an expired TTL stops a child mid-work.
 - **`--provider`, `--model` and `--reasoning-effort` are the tier assertion.** This is what
