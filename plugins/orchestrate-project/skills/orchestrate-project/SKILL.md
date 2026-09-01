@@ -195,6 +195,33 @@ that moment — never perform it, never silently skip mentioning it:
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
 
+## Before anything: can this session dispatch at all?
+
+`compozy spawn` is an agent command. Outside a runner-managed session it refuses:
+
+```
+identity_required — COMPOZY_SESSION_ID is required for agent commands
+```
+
+So **the first action of a run — before [Phase 0](references/read.md) reads a single item — is to
+check that `COMPOZY_SESSION_ID` is set in this session's environment.** Unset means this session
+cannot dispatch, and the run stops there.
+
+It is checked here rather than alongside the rest of the dispatch preflight
+([Phase 3](references/spawn.md)) because of what sits in between. Phase 0 reads a whole
+work-group's items and their relations; Phase 1.5 *writes specs* for the thin ones; Phase 2 puts
+clarifying questions to the user. Reaching Phase 3 only to refuse spends all of that, and asks a
+human to answer questions about a run that was never going to start.
+
+The other five preconditions describe infrastructure — a daemon, a registered workspace, a config
+key, a branch. A human fixes those in another terminal and re-runs into the same session. This one
+describes the session that is already executing, and nothing done from inside it can change the
+answer. That asymmetry is why it moves to the front rather than being reordered within the
+preflight.
+
+Report it as a refusal to dispatch, not as a broken setup: the fix is to re-invoke from a
+Compozy-managed session, and the work-group is untouched either way.
+
 ## Selecting the tracker
 
 Exactly one tracker is selected per run, **before [Phase 0](references/read.md) reads anything**,
@@ -218,8 +245,9 @@ contract, not the phase.
 
 ## Phases
 
-At runtime: Phase 0 → 1 → 1.5 → 2 → 3 → 4 (persistent, alongside further Phase 3 dispatches) →
-5 → back to Phase 0. Load each reference only on reaching that phase.
+At runtime: the dispatch-identity check above, then Phase 0 → 1 → 1.5 → 2 → 3 → 4 (persistent,
+alongside further Phase 3 dispatches) → 5 → back to Phase 0. Load each reference only on reaching
+that phase.
 
 | Phase | What it does | Reference |
 | --- | --- | --- |
