@@ -219,8 +219,46 @@ describes the session that is already executing, and nothing done from inside it
 answer. That asymmetry is why it moves to the front rather than being reordered within the
 preflight.
 
-Report it as a refusal to dispatch, not as a broken setup: the fix is to re-invoke from a
-Compozy-managed session, and the work-group is untouched either way.
+### Unset is not a refusal — it is a cold start
+
+Stopping here would be wrong. The user asked for a dispatch; a session that cannot dispatch is a
+setup problem, and the setup is one command away. **Create the session and run inside it.**
+
+```
+1. Reuse before creating.   compozy session list -o json
+                            An attachable session already named for this work-group is the one to
+                            use — a second session orchestrating the same items would dispatch the
+                            same wave twice.
+
+2. Otherwise create one.    compozy session new --cwd "$PWD" \
+                                --agent <configured default> \
+                                --name orchestrate-<work-group>
+
+3. Drive the run inside it. compozy session prompt <id> "<the original invocation, verbatim>"
+                            Pass through anything the outer session already established — a
+                            corrected board state, items already implemented, an explicit scope.
+                            The new session has none of that context.
+
+4. Monitor from outside.    compozy session status <id> until it settles. The run reports through
+                            that session; this one is a driver, not the orchestrator.
+```
+
+`--cwd` auto-registers the workspace path, so step 2 also satisfies the workspace-registration
+precondition that [Phase 3](references/spawn.md) checks — one command covers both.
+
+**A created session starts `unbound` and does nothing until its first prompt.** Creating one and
+never prompting it leaves an orchestration that looks started and has never run — the session is
+listed, named after the work-group, and idle forever. Step 3 is not optional bookkeeping; it is
+what binds the session.
+
+What a cold-started session carries, verified rather than assumed: `COMPOZY_SESSION_ID` set (so it
+can `spawn`), the tracker's MCP tools available (so [Phase 0](references/read.md) can read), and
+`gh` authenticated (so PRs can open). What it does **not** gain is the ability to grant MCP to its
+own children — `session new` has no `--mcp-server`, the limitation
+[the runner](references/runner.md) already records. Cold-starting does not make that better or
+worse.
+
+Refuse only when the bootstrap itself fails, and say which step failed.
 
 ## Selecting the tracker
 
