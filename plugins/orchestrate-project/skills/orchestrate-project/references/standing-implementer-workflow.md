@@ -7,6 +7,26 @@ Follow it in order.
 
 ---
 
+## Read this before step 0: never background a command and then wait for it
+
+Run the gate, the build and the test suite **in the foreground**, and read their output.
+
+A turn that ends while a background job is still running is not woken by it. The notification has
+nowhere to land, the result is never read, and the session goes idle holding uncommitted work.
+From outside it looks finished — the session reports `idle`, the tracker shows the item
+dispatched, and the branch never moved.
+
+This is not hypothetical. An implementer wrote its view, its route file, its menu entry, its tests
+and a regenerated route tree, then backgrounded the gate and ended its turn saying it would wait
+for the notification. The work sat uncommitted in the worktree at its base commit until a human
+looked. Nothing reported an error, because nothing had failed — the turn had simply closed.
+
+**A slow gate is fine.** Waiting in the foreground for ten minutes is the correct behaviour.
+Backgrounding it to stay responsive is what loses the work. The same applies to sleeping in a
+polling loop: if you find yourself waiting rather than doing, you have already ended the turn.
+
+---
+
 **0. Never delete or move your assignment file, and never copy it into the worktree.** It lives
 outside the git tree precisely so it survives a crash, a stall, or a relaunch, and so it can never
 be committed. An implementer that destroys its own spec cannot be resumed.
@@ -37,6 +57,8 @@ cd <project.gate_working_dir>   # repository root when the key is absent
 
 **Run the whole command, never a subset.** A gate that chains lint, types and tests fails a pull
 request on any of them, so a green test run alone is not evidence the gate passes.
+
+**In the foreground**, however long it takes — see the warning above this list.
 
 **If your assignment names no gate command, stop and report it.** Do not infer one from the files
 you see. A guessed build command produces a confidently green worktree that fails in CI, and the
