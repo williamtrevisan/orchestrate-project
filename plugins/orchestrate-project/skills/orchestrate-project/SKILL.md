@@ -195,6 +195,71 @@ that moment — never perform it, never silently skip mentioning it:
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
 
+## Before anything: can this session dispatch at all?
+
+`compozy spawn` is an agent command. Outside a runner-managed session it refuses:
+
+```
+identity_required — COMPOZY_SESSION_ID is required for agent commands
+```
+
+So **the first action of a run — before [Phase 0](references/read.md) reads a single item — is to
+check that `COMPOZY_SESSION_ID` is set in this session's environment.** Unset means this session
+cannot dispatch, and the run stops there.
+
+It is checked here rather than alongside the rest of the dispatch preflight
+([Phase 3](references/spawn.md)) because of what sits in between. Phase 0 reads a whole
+work-group's items and their relations; Phase 1.5 *writes specs* for the thin ones; Phase 2 puts
+clarifying questions to the user. Reaching Phase 3 only to refuse spends all of that, and asks a
+human to answer questions about a run that was never going to start.
+
+The other five preconditions describe infrastructure — a daemon, a registered workspace, a config
+key, a branch. A human fixes those in another terminal and re-runs into the same session. This one
+describes the session that is already executing, and nothing done from inside it can change the
+answer. That asymmetry is why it moves to the front rather than being reordered within the
+preflight.
+
+### Unset is not a refusal — it is a cold start
+
+Stopping here would be wrong. The user asked for a dispatch; a session that cannot dispatch is a
+setup problem, and the setup is one command away. **Create the session and run inside it.**
+
+```
+1. Reuse before creating.   compozy session list -o json
+                            An attachable session already named for this work-group is the one to
+                            use — a second session orchestrating the same items would dispatch the
+                            same wave twice.
+
+2. Otherwise create one.    compozy session new --cwd "$PWD" \
+                                --agent <configured default> \
+                                --name orchestrate-<work-group>
+
+3. Drive the run inside it. compozy session prompt <id> "<the original invocation, verbatim>"
+                            Pass through anything the outer session already established — a
+                            corrected board state, items already implemented, an explicit scope.
+                            The new session has none of that context.
+
+4. Monitor from outside.    compozy session status <id> until it settles. The run reports through
+                            that session; this one is a driver, not the orchestrator.
+```
+
+`--cwd` auto-registers the workspace path, so step 2 also satisfies the workspace-registration
+precondition that [Phase 3](references/spawn.md) checks — one command covers both.
+
+**A created session starts `unbound` and does nothing until its first prompt.** Creating one and
+never prompting it leaves an orchestration that looks started and has never run — the session is
+listed, named after the work-group, and idle forever. Step 3 is not optional bookkeeping; it is
+what binds the session.
+
+What a cold-started session carries, verified rather than assumed: `COMPOZY_SESSION_ID` set (so it
+can `spawn`), the tracker's MCP tools available (so [Phase 0](references/read.md) can read), and
+`gh` authenticated (so PRs can open). What it does **not** gain is the ability to grant MCP to its
+own children — `session new` has no `--mcp-server`, the limitation
+[the runner](references/runner.md) already records. Cold-starting does not make that better or
+worse.
+
+Refuse only when the bootstrap itself fails, and say which step failed.
+
 ## Selecting the tracker
 
 Exactly one tracker is selected per run, **before [Phase 0](references/read.md) reads anything**,
@@ -218,8 +283,9 @@ contract, not the phase.
 
 ## Phases
 
-At runtime: Phase 0 → 1 → 1.5 → 2 → 3 → 4 (persistent, alongside further Phase 3 dispatches) →
-5 → back to Phase 0. Load each reference only on reaching that phase.
+At runtime: the dispatch-identity check above, then Phase 0 → 1 → 1.5 → 2 → 3 → 4 (persistent,
+alongside further Phase 3 dispatches) → 5 → back to Phase 0. Load each reference only on reaching
+that phase.
 
 | Phase | What it does | Reference |
 | --- | --- | --- |

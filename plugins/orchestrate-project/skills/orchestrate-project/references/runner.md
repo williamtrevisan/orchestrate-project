@@ -140,6 +140,15 @@ action: run this command from a CompozyOS-managed agent session
 So the orchestrating session must itself be a Compozy session — [Phase 3](spawn.md) checks this
 first, because every other preflight can pass while this one makes dispatch impossible.
 
+**Creating the orchestrating session is itself done from outside** — see "Before anything: can
+this session dispatch at all?" in `SKILL.md`. `compozy session new --cwd "<repo path>"`
+auto-registers the workspace and creates the session; the first `session prompt` binds it. A
+session that is created and never prompted stays `unbound` and never runs.
+
+| Operation | Command |
+| --- | --- |
+| `session_new(cwd, agent, name)` | `compozy session new --cwd "<path>" --agent <agent> --name <label> -o json` |
+
 `compozy session new --worktree <name>` creates a session from outside one, and
 `compozy session prompt <id> "<text>" --provider … --model … --reasoning-effort …` carries the tier,
 so the pair looks like a substitute. **It is not a complete one:** `session new` has no

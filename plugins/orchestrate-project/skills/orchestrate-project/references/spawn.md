@@ -26,21 +26,22 @@ config:  worktrees.setup_command is set in Compozy's own config
 git:     the base branch resolves on the remote
 ```
 
-**The first one decides whether this session can dispatch at all.** `compozy spawn` is an agent
-command: outside a runner-managed session it refuses with
+**The first one was already established before Phase 0** — see "Before anything: can this session
+dispatch at all?" in `SKILL.md`. A run that reaches this page has it. It is restated here because
+this is the list a reader checks when a dispatch fails, and a precondition absent from that list
+reads as one that does not exist:
 
 ```
 identity_required — COMPOZY_SESSION_ID is required for agent commands
 ```
 
-so **orchestration runs from inside a Compozy session, or it does not dispatch.** Every other
-preflight can pass — daemon up, worktree bootstrapped and `ready`, base branch resolved — and the
-run still stops at the final step, having created a worktree it cannot use. Check it first, before
-anything is built.
+Re-reading it here costs nothing and cannot fail on its own, since the variable belongs to the
+session and no phase between there and here can change it. If it *is* somehow unset by this point,
+refuse exactly as Phase 0 would have: orchestration runs from inside a Compozy session, or it does
+not dispatch.
 
 `/orchestrate-init` reports this as `runner.dispatch_identity` rather than as a readiness stage,
-because configuring a repository from one session and orchestrating it from another is normal; the
-question only becomes binding here.
+because configuring a repository from one session and orchestrating it from another is normal.
 
 **The workspace registration is the second thing built infrastructure depends on.**
 `worktree create` resolves its workspace from the cwd and fails outright on an unregistered
