@@ -149,31 +149,52 @@ Only after the poll expires — confirmed on **both** surfaces — may the creat
 
 ## 6. Start the implementer
 
+**A worktree is dispatched with two calls, not one.** `spawn` is an *agent* command: outside a
+runner-managed session it refuses with `identity_required`, and even from inside one it cannot
+target a worktree — the path is not a registered workspace, so it fails with `workspace not found`.
+[The runner](runner.md) documents both refusals. The pair that works:
+
 ```
-runner: spawn(agent, worktree_path, prompt, provider, model, effort)
+runner: session_new(worktree, agent, name)      → session id
+runner: session_prompt(id, prompt, provider, model, effort)
 ```
 
-**The tier is set here, explicitly, per item.** `spawn` takes provider, model and reasoning-effort
-overrides, so an analysis item runs on a high tier and an implementation item on the execution tier
-without touching any machine-wide default ([D-5](decisions.md)). Two rules follow:
+`session new --worktree <name>` starts the session inside an already-`ready` worktree. **The
+session it creates is idle**: a session that is created and never prompted never runs. The prompt
+is what binds it and starts the work.
+
+**The tier is asserted on the prompt, not on the session.** `session new` takes no provider, model
+or reasoning-effort — it resolves to the machine default. `session prompt` takes all three, so that
+is where an item's tier travels ([D-5](decisions.md)). Two rules follow, unchanged:
 
 - **Never read the machine default, and never change it.** The tier travels with the dispatch.
 - **Verify what resolved and abort the wave on a mismatch, in either direction.** An implementation
   item that silently came up on a high tier is a cost bug; an analysis item that came up on the
   execution tier is a correctness one.
 
-`--ttl-seconds` is mandatory. Size it to the item, and remember that an expired TTL stops a child
-mid-work — a TTL shorter than the item is a self-inflicted stall.
+**Putting the tier on `session new` is the mistake this section exists to prevent.** It is silently
+accepted and silently ignored, so a high-tier item comes up on the execution default and nothing
+reports it.
 
-**Where the selected tracker is reached through an MCP server, grant it to the child session.** An
-MCP server is held by a session, not by the machine, so an implementer does not inherit the
-orchestrator's. The [standing workflow](standing-implementer-workflow.md) has the implementer touch
-the tracker — the optional started-write, the Definition of Done written back, a review-stage
-transition — and without the grant each of those is unreachable inside the worktree. It fails as a
-silently skipped step, not as an error, which is the worst shape for it to take.
+### The MCP grant cannot be made on this path
 
-Preflight this rather than discovering it mid-wave: if the tracker needs a server the orchestrating
-session does not itself hold, the grant cannot be made and the dispatch should stop.
+`session new` has no `--mcp-server`. A tracker reached over MCP is therefore **unreachable from
+the child**, and every tracker write the [standing workflow](standing-implementer-workflow.md)
+expects — the optional started-write, the Definition of Done written back, the review-stage
+transition — fails as a silently skipped step. That is the worst shape a failure can take.
+
+Do not dispatch and hope. **Convert the silence into a stated handoff**, in the dispatch prompt:
+
+- Tell the implementer plainly that it has no tracker access and must not attempt those writes.
+- Name a file, outside the worktree, where it writes its Definition of Done instead.
+- State that the orchestrator copies that report to the item and makes the transition.
+
+A handoff someone can read beats a step that vanishes. Say so in the run report too, so the gap is
+visible rather than inferred from a missing comment on the item.
+
+`--ttl-seconds` is mandatory on `spawn`. `session new` has no TTL of its own, so an implementer
+started this way runs until it stops or the daemon does — size the work accordingly and rely on
+[Phase 4](monitor.md)'s stall detection rather than on a timeout.
 
 ## 7. Confirm the implementer is actually running
 

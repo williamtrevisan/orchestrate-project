@@ -148,6 +148,27 @@ session that is created and never prompted stays `unbound` and never runs.
 | Operation | Command |
 | --- | --- |
 | `session_new(cwd, agent, name)` | `compozy session new --cwd "<path>" --agent <agent> --name <label> -o json` |
+| `session_new(worktree, agent, name)` | `compozy session new --worktree <worktree-name> --agent <agent> --name <ITEM-REF> -o json` |
+| `session_prompt(id, text, provider, model, effort)` | `compozy session prompt <session-id> "<text>" --provider claude --model <model> --reasoning-effort <effort> -o json` |
+
+**`session prompt` prints nothing on success.** No id, no acknowledgement, no JSON — an empty
+stdout and exit 0. It looks identical to a call that did nothing, and reading it as a failure is
+the trap: re-sending produces a second turn on a session that is already working.
+
+**Never judge delivery by the CLI's output.** The prompt landed when the session starts producing
+events; that is the only reliable signal:
+
+```
+compozy session inspect <session-id> -o json     # state
+# or read the daemon's event stream for that session id
+```
+
+An empty `session_input_queue` is also not evidence of failure — it drains as the prompt is
+consumed, so "queue empty" and "queue never filled" look the same after the fact.
+
+**`session prompt` resolves its workspace from the current directory**, and takes no `--workspace`
+override. Run it from inside the worktree, or it fails resolving a workspace that has nothing to do
+with the session being prompted.
 
 `compozy session new --worktree <name>` creates a session from outside one, and
 `compozy session prompt <id> "<text>" --provider … --model … --reasoning-effort …` carries the tier,

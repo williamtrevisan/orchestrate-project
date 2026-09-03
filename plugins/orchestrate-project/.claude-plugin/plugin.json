@@ -1,7 +1,7 @@
 {
   "name": "orchestrate-project",
   "displayName": "Orchestrate Project",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Compute a stack order from a work-group's real dependency graph, dispatch one autonomous implementer per eligible item into its own Compozy worktree cut from its parent's branch, and babysit every PR through CI and review until a human can merge the stack.",
   "author": {
     "name": "William Trevisan",
