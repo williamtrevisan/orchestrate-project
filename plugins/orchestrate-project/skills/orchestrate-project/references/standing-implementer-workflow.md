@@ -51,9 +51,17 @@ they come from `project.gate_command` and `project.gate_working_dir` in the repo
 `.orchestrate-project.json`, written when the project was configured.
 
 ```
-cd <project.gate_working_dir>   # repository root when the key is absent
+cd <project.gate_working_dir>   # when the key is absent: YOUR WORKTREE's root
 <project.gate_command>
 ```
+
+**When the key is absent the fallback is your own worktree, never the orchestrating clone.** The
+phrase "repository root" is ambiguous in a worktree and resolves the wrong way by default: a
+dispatch prompt that substitutes the orchestrator's checkout path gates a tree that does not
+contain your change, then reports a pass that says nothing about your work. Observed on a real
+run: **13 dispatch prompts** across several waves carried the orchestrating clone's absolute path,
+and every "gate clean" claim they produced was unfounded. Whoever writes the prompt
+([Phase 3](spawn.md)) resolves this path to the worktree it is dispatching.
 
 **Run the whole command, never a subset.** A gate that chains lint, types and tests fails a pull
 request on any of them, so a green test run alone is not evidence the gate passes.

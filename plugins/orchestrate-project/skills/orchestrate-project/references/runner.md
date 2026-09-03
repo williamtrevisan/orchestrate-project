@@ -151,6 +151,54 @@ session that is created and never prompted stays `unbound` and never runs.
 | `session_new(worktree, agent, name)` | `compozy session new --worktree <worktree-name> --agent <agent> --name <ITEM-REF> -o json` |
 | `session_prompt(id, text, provider, model, effort)` | `compozy session prompt <session-id> "<text>" --provider claude --model <model> --reasoning-effort <effort> -o json` |
 
+### A session must be *attached* before it can be prompted
+
+`unbound` is not the only state that swallows a prompt. A session that was bound and has since
+gone idle reads as **`detached`**, and every `session prompt` to it fails — not with a state
+error, but with whatever unrelated error the resolution path happens to raise. Retrying the
+prompt never fixes it; only re-attaching does.
+
+```
+compozy session health <session-id>      # State: detached / Attachable: false
+compozy session resume <session-id>      # -> State: active, and prints "Attach Expires:"
+```
+
+**`resume` opens a fixed attach window** (~15 minutes, printed as `Attach Expires`). Send the
+prompt inside it; after it lapses the session detaches again and the next prompt fails the same
+way. Check `session health` *before* concluding a prompt failure is a daemon or network problem —
+`State` and `Ineligibility Reason` name it directly.
+
+### The tier is named in the session's own vocabulary, not as a model id
+
+`session prompt --model` is validated against the ACP config options of that session, which are
+short names — `opus`, `sonnet`, `haiku`, `claude-fable-5-1`, `default`. A full model id such as
+`claude-opus-5` is **rejected**, and the error lists the choices that session will accept:
+
+```
+acp: model "claude-opus-5" is unavailable in config option "model";
+     valid choices: claude-fable-5-1, default, haiku, opus, sonnet
+```
+
+This matters for the tier assertion in [Phase 3](spawn.md): assert the tier against the name the
+session accepts. `session list -o json` reports the *effective* model in a different vocabulary
+again (`claude-sonnet-5`), so compare tiers, never raw strings.
+
+### Retry a prompt with an explicit identity, never a bare re-send
+
+`--message-id` and `--idempotency-key` must be **provided together** -- either alone is an error --
+and together they make a retry safe: a duplicate delivery is refused rather than producing a
+second turn.
+
+```
+compozy session prompt <id> "<text>" --provider claude --model opus \
+  --reasoning-effort high --queue --message-id msg-<item>-1 --idempotency-key idem-<item>-1
+```
+
+**A key is single-use, including by the attempt that failed.** A call rejected for any reason
+(an invalid model, a timeout) still binds its key, and reusing it returns
+`idempotency conflict: ... already bound to another request`. A genuine retry therefore needs a
+**fresh** pair -- so verify the prompt did not land (below) before issuing one.
+
 **`session prompt` prints nothing on success.** No id, no acknowledgement, no JSON — an empty
 stdout and exit 0. It looks identical to a call that did nothing, and reading it as a failure is
 the trap: re-sending produces a second turn on a session that is already working.
@@ -165,6 +213,33 @@ compozy session inspect <session-id> -o json     # state
 
 An empty `session_input_queue` is also not evidence of failure — it drains as the prompt is
 consumed, so "queue empty" and "queue never filled" look the same after the fact.
+
+**Nor is a timeout.** `session prompt` routinely holds the connection open past a two-minute
+client timeout while the prompt is already delivered and the session is working. Killing the
+client changes nothing on the daemon's side. Count events before and after: a session that went
+from 2 events to 134 received the prompt, whatever the shell reported.
+
+**Errors arrive on stdout with exit 0.** Every failure above — the model rejection, the
+idempotency conflict — printed to stdout and exited 0. Never filter runner output, and never read
+an exit status as the result.
+
+### When dispatch stalls but the daemon answers
+
+A single wedged handler is indistinguishable from a dead daemon unless the two are told apart
+deliberately. Observed: every single-resource `GET /api/workspaces/{id}` timed out for hours
+(`context deadline exceeded`) while the *list* endpoints answered instantly. Because every
+`session new` route — `--cwd`, `--workspace`, `--worktree` — resolves through that one GET, no
+new dispatch was possible while `session list` and `workspace list` made the daemon look healthy.
+
+```
+compozy workspace list      # answers  -> daemon is alive
+compozy workspace info <id> # times out -> the single-resource handler is the wedge
+```
+
+`session resume` does not go through workspace resolution, which is why an already-created session
+can still be re-attached and prompted while new ones cannot be created. Recovering an existing
+session is therefore the first thing to try when dispatch stalls — not a daemon restart, which
+kills every in-flight implementer and is a human's call.
 
 **`session prompt` resolves its workspace from the current directory**, and takes no `--workspace`
 override. Run it from inside the worktree, or it fails resolving a workspace that has nothing to do
