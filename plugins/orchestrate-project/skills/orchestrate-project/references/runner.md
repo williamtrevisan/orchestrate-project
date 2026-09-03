@@ -163,6 +163,13 @@ compozy session health <session-id>      # State: detached / Attachable: false
 compozy session resume <session-id>      # -> State: active, and prints "Attach Expires:"
 ```
 
+**`stopped` is terminal — `resume` does not recover it.** Attaching returns
+`store: session not attachable`. A session that ends after pushing its commit but before
+marking the PR ready and writing its report leaves that work undone with no way to hand it back,
+so the orchestrator finishes those steps itself and **says so in the report** — attributing them
+to the orchestrator, never presenting them as the implementer's self-report. Verify the item
+independently before doing this; the implementer is gone and cannot be asked.
+
 **`resume` opens a fixed attach window** (~15 minutes, printed as `Attach Expires`). Send the
 prompt inside it; after it lapses the session detaches again and the next prompt fails the same
 way. Check `session health` *before* concluding a prompt failure is a daemon or network problem —
