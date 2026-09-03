@@ -171,6 +171,11 @@ is where an item's tier travels ([D-5](decisions.md)). Two rules follow, unchang
 - **Verify what resolved and abort the wave on a mismatch, in either direction.** An implementation
   item that silently came up on a high tier is a cost bug; an analysis item that came up on the
   execution tier is a correctness one.
+- **Compare tiers, not strings.** `--model` is validated against the session's own short names
+  (`opus`, `sonnet`, `haiku`, …) and rejects a full model id like `claude-opus-5`, while
+  `session list` reports the resolved model in a third vocabulary (`claude-sonnet-5`). A literal
+  string comparison reports a mismatch that is not one — see
+  [the runner](runner.md) for both vocabularies.
 
 **Putting the tier on `session new` is the mistake this section exists to prevent.** It is silently
 accepted and silently ignored, so a high-tier item comes up on the execution default and nothing
