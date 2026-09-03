@@ -133,17 +133,29 @@ the project has one. If it exists but cannot express something you need — a dr
 that is not the default — use it for the body and fall back to `gh pr create` for the mechanics
 rather than abandoning it entirely.
 
-Title references the item. Follow the project's own pull-request template and labelling rules where
-it has them, and add neither where it does not — again, from your assignment rather than from this
-page.
+**The title follows the project's own commit convention, not a shape invented here.** Where the
+project uses Conventional Commits — check `git log` on the default branch before writing it — the
+pull request title is a Conventional Commits subject like any commit: `feat(scope): …`. Reach for
+your own first commit's subject; it is usually already the right title.
+
+Do not open with the item's reference unless the project's convention document asks for it. A
+tracker that links pull requests by branch name already has the link, so a reference in the title
+adds nothing and displaces the type and scope a reader scans for.
+
+Follow the project's own pull-request template and labelling rules where it has them, and add
+neither where it does not — again, from your assignment rather than from this page.
 
 **The draft exists so progress is visible while you work, not because the work is done.** From
 here on, every atomic commit of the implement → gate → commit cycle is pushed to the same branch.
 The draft updates itself; you never open a second PR for the same item.
 
-**7. Keep the draft honest.** Each push re-runs `ci` and `docs-check` against your branch, so a
-red check on a draft is real feedback about the commit you just pushed, not noise to be tidied up
-at the end. Fix it when it appears.
+**7. Keep the draft honest.** Each push re-runs whatever checks the project gates pull requests
+on, so a red check on a draft is real feedback about the commit you just pushed, not noise to be
+tidied up at the end. Fix it when it appears.
+
+**A check that fails on work you did not touch is reported, not chased.** A repository whose trunk
+is not green will hand you inherited failures; confirm against the project's own baseline before
+treating one as yours, and name it in the pull request instead of fixing it out of scope.
 
 Update the PR body as the shape of the work settles, so someone watching the draft can tell what
 is done and what is still open. A draft whose description still describes the first commit is
