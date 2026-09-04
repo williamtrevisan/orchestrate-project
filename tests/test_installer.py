@@ -180,7 +180,11 @@ class Installer(unittest.TestCase):
             ],
             capture_output=True, text=True, env=environment,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        # The exit code is deliberately not asserted: probe returns 1 when no
+        # tracker authenticates, which is the state of any runner without gh
+        # credentials. It prints the report either way, and the report is what
+        # carries the answer this test is after.
+        self.assertTrue(result.stdout, result.stderr)
         self.assertEqual(
             json.loads(result.stdout)["shipped_trackers"], ["github", "jira", "linear"]
         )
