@@ -130,8 +130,11 @@ class InitCommand(unittest.TestCase):
 
     def test_resolves_the_script_through_the_plugin_root_variable(self):
         """A hardcoded path breaks the moment the plugin is installed anywhere
-        other than where it was written."""
-        self.assertIn("${CLAUDE_PLUGIN_ROOT}", self.text)
+        other than where it was written. The `:-` default extends that to the
+        second shape this ships in, where a repository vendored the skill into
+        .claude/ and the variable is not set at all; test_installer asserts the
+        bare form is gone."""
+        self.assertIn("${CLAUDE_PLUGIN_ROOT:-", self.text)
 
     def test_probes_before_it_writes(self):
         self.assertLess(self.text.index("probe"), self.text.index("write \\"))
