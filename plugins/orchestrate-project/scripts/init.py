@@ -52,10 +52,29 @@ DAEMON_STATUS_COMMAND = [RUNNER, "status", "-o", "json"]
 #: The plugin root - this script lives in <plugin>/scripts/.
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+def _trackers_dir():
+    """Where the shipped tracker documents live, in either shape this ships in.
+
+    Installed as a plugin, PLUGIN_ROOT is the plugin and the skill sits under
+    skills/orchestrate-project/. Vendored into a repository's .claude/ by the
+    installer, the scripts sit beside the skill, so references/ is one level up
+    from here rather than three. Probing beats branching on an environment
+    variable: the layout is on disk either way.
+    """
+    candidates = (
+        os.path.join(
+            PLUGIN_ROOT, "skills", "orchestrate-project", "references", "trackers"
+        ),
+        os.path.join(PLUGIN_ROOT, "references", "trackers"),
+    )
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return candidates[0]
+
+
 #: Where the shipped tracker documents live.
-TRACKERS_DIR = os.path.join(
-    PLUGIN_ROOT, "skills", "orchestrate-project", "references", "trackers"
-)
+TRACKERS_DIR = _trackers_dir()
 
 #: How each tracker is reached, and what it needs, is declared by the tracker's
 #: OWN document in a ```tracker-config fenced block - not here.

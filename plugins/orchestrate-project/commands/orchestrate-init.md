@@ -9,14 +9,16 @@ Discover what is true, ask only what the environment has not already settled, th
 
 ## The contract you are working inside
 
-`${CLAUDE_PLUGIN_ROOT}/scripts/init.py` is **non-interactive by design**. It never prompts and never reads stdin, because it runs through a shell the operator cannot type into — a prompt there would hang the session with its own text invisible.
+`${CLAUDE_PLUGIN_ROOT:-.claude/skills/orchestrate-project}/scripts/init.py` is **non-interactive by design**. It never prompts and never reads stdin, because it runs through a shell the operator cannot type into — a prompt there would hang the session with its own text invisible.
+
+That path expansion resolves the script in both shapes this skill ships in: the variable is set when it runs as an installed plugin, and unset when a repository vendored the skill into `.claude/` with the installer, where the script sits beside it. **Keep the `:-` default in every invocation.** Without it the variable expands to the empty string outside the plugin runtime, and the call becomes `python3 /scripts/init.py` — an absolute path into the filesystem root, which fails with a confusing "no such file" rather than anything about a plugin.
 
 **You own every question. The script owns every fact and every write.** Do not ask the operator something the script already answered, and do not write the configuration file yourself.
 
 ## 1. Discover, before asking anything
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init.py" --root . probe -o json
+python3 "${CLAUDE_PLUGIN_ROOT:-.claude/skills/orchestrate-project}/scripts/init.py" --root . probe -o json
 ```
 
 Read the report. It carries the shipped tracker set, each tracker's probe verdict with the exact command and stderr, the **runner readiness chain**, candidate gate commands with the manifest each came from, candidate conventions documents, and whether a configuration already exists.
@@ -171,7 +173,7 @@ after it.
 ## 3. Write
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init.py" --root . write \
+python3 "${CLAUDE_PLUGIN_ROOT:-.claude/skills/orchestrate-project}/scripts/init.py" --root . write \
   --tracker <chosen> \
   --gate-command "<chosen>" \
   [--gate-working-dir <dir>] \

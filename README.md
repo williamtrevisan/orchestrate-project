@@ -34,6 +34,48 @@ tracker's authentication before offering it, detects your gate command from what
 actually have, walks the runtime readiness chain, and writes `.orchestrate-project.json` — which you
 commit, because a tracker choice is a team fact.
 
+### Skip the manual marketplace step
+
+A repository can declare where the plugin comes from, so a teammate who clones it needs neither
+command above. Commit this in `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "orchestrate-project": {
+      "source": { "source": "github", "repo": "williamtrevisan/orchestrate-project" }
+    }
+  },
+  "enabledPlugins": { "orchestrate-project@orchestrate-project": true }
+}
+```
+
+Trusting the project folder then registers the marketplace and enables the plugin in one step, and
+`/orchestrate-init` is all that is left. The plugin's files are still fetched into the machine-local
+plugin cache — this declares provenance, the way `package.json` does rather than `node_modules`.
+
+### Or vendor it into the repository
+
+Some repositories want the skill in their own tree rather than in a per-machine cache — so a clone
+carries it, a diff shows it changing, and no one has to install anything first. For those:
+
+```
+npx github:williamtrevisan/orchestrate-project install
+```
+
+That copies the skill, its references, its scripts and `/orchestrate-init` into `.claude/`, and
+records a content hash in `skills-lock.json`. Commit all of it. `/orchestrate-init` then works
+exactly as it does under the plugin — the command resolves `init.py` beside the skill when
+`CLAUDE_PLUGIN_ROOT` is unset, so one artifact serves both shapes.
+
+Re-run `install` to update; it is idempotent and reports when there is nothing to do. **It refuses
+to overwrite a copy that has local edits** and exits 3, because a vendored copy that quietly drifts
+from upstream is the failure this whole repository exists to remove — pass `--force` when
+overwriting is what you actually want. `npx github:... remove` takes it all back out.
+
+Pick one shape, not both. The plugin cache and a vendored copy would give one repository two
+versions of the same skill, which is the problem, not a fallback.
+
 Then run it:
 
 ```

@@ -13,6 +13,9 @@ PLUGIN_MANIFEST = os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json")
 SKILL_DIR = os.path.join(PLUGIN_DIR, "skills", "orchestrate-project")
 REFERENCES_DIR = os.path.join(SKILL_DIR, "references")
 TRACKERS_DIR = os.path.join(REFERENCES_DIR, "trackers")
+COMMANDS_DIR = os.path.join(PLUGIN_DIR, "commands")
+INSTALLER = os.path.join(REPO_ROOT, "bin", "install.mjs")
+PACKAGE_MANIFEST = os.path.join(REPO_ROOT, "package.json")
 
 
 def shipped_markdown():
