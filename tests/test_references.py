@@ -422,3 +422,79 @@ class CitedPathsMustExistInAWorktree(unittest.TestCase):
 
     def test_the_configured_gate_is_a_default_not_the_items_gate(self):
         self.assertIn("not necessarily this item's gate", self.text)
+
+
+class DispatchFailureIsReportedNotWorkedAround(unittest.TestCase):
+    """`POST /api/agent/spawn` wedged for a whole run while every other daemon
+    endpoint answered instantly. Ten attempts across four parent-session states
+    produced no dispatch and no child.
+
+    Three things went wrong around it, and each is asserted here: the wedge was
+    not documented, so it was mapped by brute force; the only fix is a daemon
+    restart, which kills other runs' implementers and is therefore a human's
+    call; and with dispatch impossible, the orchestrator finished an item's last
+    two assertions by hand — the one thing this skill says it never does.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+
+    def test_the_spawn_wedge_is_named_with_its_endpoint(self):
+        self.assertIn("POST /api/agent/spawn", self.runner)
+
+    def test_a_daemon_restart_is_a_human_decision(self):
+        """It clears the wedge and kills every in-flight implementer on the box,
+        including runs this skill cannot see."""
+        for text in (self.runner, self.spawn):
+            self.assertIn("Never restart the daemon", text)
+        surface = self.skill[self.skill.index("## Surface, don't auto-do"):]
+        self.assertIn("cannot dispatch", surface[:surface.index("\n## ")])
+
+    def test_retries_are_bounded(self):
+        self.assertIn("stop at two", self.spawn)
+
+    def test_the_code_boundary_is_restated_for_a_dead_runner(self):
+        section = self.skill[self.skill.index("## The orchestrator does not write code"):]
+        section = section[:section.index("\n## Two boundaries")]
+        self.assertIn("runner is down", section)
+        self.assertIn("must not do is write the missing change", section)
+
+    def test_orchestrator_landed_branches_still_follow_the_tracker(self):
+        """Pushing the runner's local worktree name is how a PR ends up
+        unlinkable from its item."""
+        self.assertIn("run_branch_namespace", self.skill)
+
+
+class ConcurrentRunsShareOneMachine(unittest.TestCase):
+    """Two orchestrations ran against one clone. Each committed the other's
+    uncommitted edits, one force-updated the other's branch and rewrote its pull
+    request, both authored the same decision number into different features, and
+    the contention killed five gates through the OOM killer.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+
+    def test_the_repository_level_collision_is_named(self):
+        self.assertIn("One orchestration per repository at a time", self.skill)
+
+    def test_another_agents_uncommitted_work_is_never_committed(self):
+        self.assertIn("Never commit another agent's uncommitted work", self.skill)
+
+    def test_a_shared_clone_is_edited_with_plumbing(self):
+        """checkout, reset --hard and stash all destroy work that was never yours."""
+        self.assertIn("read-tree", self.skill)
+
+    def test_machine_headroom_is_part_of_the_dispatch_preflight(self):
+        self.assertIn("enough free memory", self.spawn)
+        self.assertIn("All seven must hold", self.spawn)
+
+    def test_shared_identifiers_are_read_from_the_trunk(self):
+        """Two decisions shipped as the same number, each read before the other
+        run appended to the log."""
+        self.assertIn("before writing an identifier into it", self.skill)

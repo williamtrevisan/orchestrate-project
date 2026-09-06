@@ -110,11 +110,72 @@ spend, **drop to cheap checks and say so** — do not silently keep spending, an
 stop verifying. A run that reports "validated lightly from here" is honest; one that quietly does
 either is not.
 
+## One orchestration per repository at a time
+
+The reuse check above is about sessions on one work-group. The wider rule is about the
+**repository**: two orchestrations running against the same clone will collide, and the collision
+is silent.
+
+Observed 2026-09-06, all within one run: an agent's uncommitted edits were committed by the other
+session before it had finished writing them; a branch created by one was force-updated by the
+other and its pull request rewritten; both authored the same architectural-decision number into
+different features, because each read the decision log before the other appended to it; and both
+competed for the same machine, which is what made the gate fall to the OOM killer five times.
+
+So, before dispatching:
+
+- **Look for another run.** `compozy session list` shows sessions named for other work-groups, and
+  `worktree list` shows their worktrees. A second orchestration is not a reason to refuse, but it
+  **is** a reason to say so up front and to expect contention.
+- **Never commit another agent's uncommitted work.** A dirty file you did not write is someone
+  else's turn in progress. Read it, work around it, and say it is there — committing it puts your
+  name on a change you cannot explain in review.
+- **Prefer plumbing over checkouts in a shared clone.** `git read-tree` into a temporary index plus
+  `commit-tree` builds a commit without touching a working tree another agent is editing;
+  `checkout`, `reset --hard` and `stash` all destroy work that was never yours.
+- **Re-read a shared log on the trunk before writing an identifier into it.** Decision numbers,
+  requirement ids and migration names are allocated by reading, and a number read before the other
+  run appended is already stale. This one is not theoretical: two decisions shipped as the same
+  number, one of them cited across four features and three items before anyone noticed. Take the
+  number from the trunk, not from your working copy.
+- **Check machine headroom before dispatching a wave.** Implementers run real test suites. On a box
+  already running another orchestration, the OOM killer takes whichever process asks last, and a
+  gate killed that way reports no failures — which reads as a pass ([the standing
+  workflow](references/standing-implementer-workflow.md)).
+
 ## The orchestrator does not write code
 
 It reads the work-group, builds the graph, splits it into waves, creates worktrees, starts one
 implementer per item, monitors PRs, CI and reviews, and releases the next wave. **Every line of
 production code is written inside a dispatched worktree**, never in the orchestrating session.
+
+### The boundary holds hardest when the runner is down
+
+A dead runner plus an item sitting two assertions from done is exactly when writing "just this
+one fix" looks reasonable. It is still the orchestrator writing code, and it is still outside the
+process the whole skill exists to keep: no implementer prompt records what was decided, no
+Definition of Done is derived, and the reviewer's only clue is whatever the pull-request body
+happens to admit.
+
+What the orchestrator **may** do with a killed implementer's worktree, none of which is authoring:
+
+- Run the cheap checks and the gate against that tree, and report exactly what passed.
+- Diagnose the remaining failures precisely, and put the diagnosis in the re-dispatch prompt
+  ([Phase 4](references/monitor.md)).
+- Commit, push and open the draft for work the implementer had already finished but not landed.
+
+What it must not do is write the missing change. When dispatch is impossible, **that is the
+report**: name the wedge, name the attempts, land what is verifiable, and leave the item at its
+real state. A run that stops short and says so is honest; one that quietly finishes the work by
+hand has removed the evidence that the runner was broken.
+
+If a human, told all of that, asks for the fix by hand anyway, it is theirs to ask for — write it,
+and say plainly in the pull request that the orchestrator authored it and why.
+
+**When the orchestrator does land a killed implementer's branch, the remote branch name still
+comes from the tracker's rule, never from the runner's `run_branch_namespace`.** Pushing the
+worktree's local name is how a pull request ends up unlinkable from its item — the tracker matches
+on the branch name it published, and `orch/ITEM-1` is not that name.
 
 ## Two boundaries, both zero-exception
 
@@ -194,6 +255,13 @@ that moment — never perform it, never silently skip mentioning it:
   call. Never flip it.
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
+- **A runner that cannot dispatch.** When `spawn` is wedged ([the runner](references/runner.md)),
+  say so with the attempts you made and stop dispatching. **Never restart the daemon to clear
+  it** — a restart kills every in-flight implementer on the machine, including waves from runs
+  this skill cannot see. Naming it is the whole job; the restart is the human's.
+- **CI that never starts.** A red check whose job ran no steps is the repository's condition, not
+  the wave's ([Phase 4](references/monitor.md)). Report it against the default branch's own
+  history and stop; billing, Actions settings and runner registration are never touched here.
 
 ## Before anything: can this session dispatch at all?
 
@@ -273,19 +341,22 @@ Two consequences, and neither is optional:
 - **Dispatch before you spend.** Reaching Phase 3 with a nearly full window means the wave starts
   and immediately dies. If the window is running low, dispatch what is eligible *first* and report
   afterwards.
-- **The whole skill does not have to run inside the Compozy session.** `spawn` reads its identity
-  from the environment, so a driver session that already holds the tracker's MCP can create a
-  session, never prompt it, export the pair, and dispatch from its own shell:
+- **Do not try to dispatch from an outside shell by borrowing the identity.** The environment
+  pair is necessary and **not sufficient**. Exporting `COMPOZY_SESSION_ID` and `COMPOZY_AGENT`
+  from a session created by `session new` gets past `identity_required` and then hangs:
+  `POST /api/agent/spawn` never returns, while `session list`, `workspace info`, `worktree
+  status` and `session prompt` all answer instantly from the same shell.
 
-  ```
-  compozy session new --cwd "$PWD" --agent <agent> -o json      # take the id; do not prompt it
-  export COMPOZY_SESSION_ID=sess-…  COMPOZY_AGENT=<agent>
-  compozy spawn --auto-stop-on-parent=false …
-  ```
+  Measured 2026-09-06 across **ten attempts** and four configurations — unbound parent, parent
+  re-attached with `session resume`, `--no-notify-creator`, and a parent in the middle of a real
+  turn (75k tokens, `done: end_turn`). Every one timed out; none created a child, so the failure
+  is at least clean. The only spawns that ever succeeded on this machine came from **inside** an
+  agent's own turn.
 
-  This keeps Phases 0–2 in the session that already has the context and the tracker, and pays no
-  second context window to re-derive them. It is the cheaper route whenever the driver can read
-  the tracker itself; hand the whole invocation over only when it cannot.
+  So the cost problem above has exactly one remedy that is known to work: **dispatch early in the
+  turn**, before the window is spent. Handing the invocation to a fresh session and driving it
+  from outside remains the documented cold start; taking its identity and skipping the session is
+  not a shortcut, it is a hang.
 
 ## Selecting the tracker
 

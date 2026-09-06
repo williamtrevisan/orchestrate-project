@@ -15,7 +15,13 @@ work.
 
 ## 1. Preflight — refuse rather than dispatch into a broken setup
 
-All six must hold. Any miss: report **which** one failed, and dispatch nothing.
+All seven must hold. Any miss: report **which** one failed, and dispatch nothing.
+
+The last one is a soft check with a hard consequence. Implementers run the project's real suites,
+so a wave dispatched onto a box already running another orchestration gets its gates killed by the
+OOM killer — which reports no failures and reads as a pass ([the standing
+workflow](standing-implementer-workflow.md)). Do not refuse on it; **say it out loud, and lower
+the wave's width** rather than discovering it four green-looking gates later.
 
 ```
 session: COMPOZY_SESSION_ID and COMPOZY_AGENT are both set in this session's environment
@@ -24,6 +30,7 @@ runner:  the repository is a registered workspace
 config:  .orchestrate-project.json parses, and carries project.gate_command
 config:  worktrees.setup_command is set in Compozy's own config
 git:     the base branch resolves on the remote
+host:    enough free memory for the wave's own test suites
 ```
 
 **The first one was already established before Phase 0** — see "Before anything: can this session
@@ -248,6 +255,29 @@ visible rather than inferred from a missing comment on the item.
 mid-work, so size it to the item rather than to the wave. On the fallback route there is no TTL at
 all: an implementer started that way runs until it stops or the daemon does, and
 [Phase 4](monitor.md)'s stall detection is the only backstop.
+
+### When the spawn call never returns
+
+`spawn` can time out with the daemon otherwise healthy — [the runner](runner.md) records the
+wedge and the ten attempts that mapped it. Three rules, because each was learned by breaking one:
+
+- **A timeout is not a failure.** Check `session list` for a child named after the item before
+  doing anything else. This particular wedge creates nothing, but that is an observation, not a
+  guarantee, and a blind retry is how an item gets two implementers on one worktree.
+- **Retry with a fresh `--idempotency-key`, and stop at two.** A key is single-use even when the
+  attempt it was bound to failed. Beyond a second try you are not retrying, you are polling a
+  broken endpoint — and the ten-attempt map cost an hour that produced no dispatch.
+- **Do not reshape the call hoping to slip past it.** Toggling `--no-notify-creator`, re-attaching
+  the parent, or prompting it into a live turn all changed nothing. The parent's state is not the
+  cause.
+
+Then report per `SKILL.md`'s "Surface, don't auto-do": name the wedge, the attempts and what the
+wave was going to dispatch, and stop. **Never restart the daemon to clear it** — it kills every
+in-flight implementer on the machine, including other runs' work.
+
+A wave that cannot dispatch is not a wave that failed. Items already dispatched keep running,
+[Phase 4](monitor.md) keeps monitoring them, and anything verifiable is still landed. The run
+resumes at [Phase 0](read.md) once a human has the runner back.
 
 ## 7. Confirm the implementer is actually running
 
