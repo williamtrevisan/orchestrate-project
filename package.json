@@ -1,6 +1,6 @@
 {
   "name": "orchestrate-project",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Vendor the orchestrate-project skill into a repository, as an alternative to installing it as a Claude Code plugin.",
   "license": "CC-BY-4.0",
   "type": "module",
