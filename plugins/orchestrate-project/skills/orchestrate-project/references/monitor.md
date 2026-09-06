@@ -24,6 +24,17 @@ implementer has started and its progress is now watchable; the ready flip is the
 [Phase 5](advance.md) releases on. A monitor that reports "PR opened" for both will release
 dependents against stubs — the exact failure the draft-first workflow otherwise prevents.
 
+**Measure progress on a channel the runner cannot take down with it.** `git` and `gh` answer
+whether or not the Compozy daemon does, so branch commit counts and `gh pr list` keep reporting
+through a wedge ([the runner](runner.md)) that makes every `session status` time out. A monitor
+whose only source is the daemon goes blind exactly when a run most needs watching.
+
+**And it must emit when that source fails.** A poll loop written as "query, parse, echo on change"
+swallows the failure and prints nothing — which is byte-for-byte what a healthy, unchanged run
+looks like. Observed 2026-09-06: a monitor stayed silent through a full daemon outage and read as
+"still going." Emit an explicit `runner unreachable` line, and keep emitting the git-side counts
+beside it, so silence never has two meanings.
+
 ## 2. Two independent dedup keys
 
 So CI state and review state are never conflated:
@@ -98,6 +109,52 @@ must rediscover why two tests fail costs what the first one already spent. Obser
 two killed implementers left one item complete and one two assertions short; the second's failure
 was a single markup decision, and naming it in the re-dispatch prompt turned a full re-run into a
 two-line change.
+
+## 3.6 CI that never started is not the item's failure
+
+A red check whose job never ran says nothing about the code. The signature is a job that fails in
+seconds with **no steps at all**, every downstream job `skipping`, and the reason living only in
+the check-run annotation rather than in any log:
+
+```
+gh run view <run-id> --log-failed          # -> "log not found"
+gh api repos/<owner>/<repo>/check-runs/<job-id>/annotations
+# -> "The job was not started because recent account payments have failed
+#     or your spending limit needs to be increased"
+```
+
+Billing is one cause; a disabled Actions setting, an expired runner registration and a suspended
+org are others. What they share is that no implementer can fix them and no re-run will clear them.
+
+**Confirm it is environmental, not this run's.** Check the default branch:
+
+```
+gh run list --limit 15 --json headBranch,conclusion,createdAt
+```
+
+If runs on `main` fail identically, and fail from a timestamp *before* this run started, it is the
+repository's condition and not something the wave introduced. Say so with that timestamp.
+
+**Then stop, and surface it.** This is a human-only fix, so it belongs with the trigger points in
+`SKILL.md`'s "Surface, don't auto-do". Three things not to do:
+
+- **Do not loop waiting for green.** CI green is baked-in default 3 and gates the ready flip, so
+  with Actions unavailable no PR can ever leave draft and no wave can ever release. A monitor left
+  armed on that condition burns until its timeout and reports nothing.
+- **Do not relax the gate on your own judgment.** Substituting the local gate for CI is a real
+  option, and it is the human's to take, not yours.
+- **Do not touch billing, the workflow files, or Actions settings.**
+
+**If the human does authorize substituting the local gate**, it comes with conditions, because the
+evidence in a PR body is written by the implementer being checked:
+
+- **Re-run the gate yourself**, in that item's own worktree, and compare against what the PR
+  claims. A divergence is a reason to leave the PR in draft and report, not to reconcile quietly.
+- **Record the deviation in each PR you flip**, naming the outage, its start timestamp, and the
+  gate result you measured. A reviewer must not have to ask why CI is absent.
+- **Nothing about the gate itself loosens** — no weakened assertion, no skipped test, no entry
+  added to the baseline to make it pass.
+- **The merge boundary does not move.** It never does.
 
 ## 4. Genuine CI failure
 

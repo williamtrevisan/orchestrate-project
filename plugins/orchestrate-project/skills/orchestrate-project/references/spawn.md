@@ -71,10 +71,35 @@ The middle two are the difference between a usable worktree and a bare one:
   implementer that cannot run the gate. Confirm the script exists on the base
   (`git cat-file -e origin/<base>:<path>`) before dispatching the first item of a run.
 
+**Every path an item cites must be readable inside a fresh worktree.** The same "a worktree holds
+only what is committed" rule that bites `setup_command` bites the item's own references, and it is
+easier to miss because the paths resolve perfectly in the orchestrating session. Observed
+2026-09-06: ten items each opened by citing `.specs/features/<feature>/spec.md`, and the
+repository's `.gitignore` excluded `.specs/features/` — the documents existed on one person's disk
+and in no commit, so every dispatched worktree would have contained none of them.
+
+```
+git ls-files <cited path>          # empty = not committed
+git check-ignore -v <cited path>   # names the .gitignore rule, if that is why
+```
+
+Check the paths the wave's items cite before dispatching the first one. When a path is genuinely
+uncommitted, copy it into each worktree at creation and tell the implementer it is read-only and
+must not be added — then record the gap for the run report, because a feature's own specification
+living outside version control is a repository problem that outlives this wave.
+
 **Never read a project fact from this file.** The gate command, its working directory and the
 bootstrap marker come from `project.*` in `.orchestrate-project.json`, written by
 `/orchestrate-init`. A literal here would send every implementer in every repository to run one
 project's build.
+
+**`project.gate_command` is the project's default, not necessarily this item's gate.** Where the
+conventions document at `project.constitution_path` defines per-area gates and the tracker's item
+declares an area of change, the item's area selects the gate — that is the whole point of the
+field. Observed 2026-09-06: a configured `--area full` against ten items all declaring `frontend`
+would have run the backend suite on every one of them, trading minutes per gate for a signal none
+of the items could move. Pass the narrower variant, and when it differs from the configured
+default, say so in the dispatch prompt so the implementer does not "correct" it back.
 
 **If a required project key is absent, stop and name it.** Never substitute a value — a guessed
 build command is worse than no dispatch, because it fails inside a worktree hours later.

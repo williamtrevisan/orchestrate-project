@@ -285,3 +285,140 @@ class IncompleteChecksAreNotResults(unittest.TestCase):
     def test_it_offers_blast_radius_as_the_honest_fallback(self):
         lowered = self.text.lower()
         self.assertIn("blast radius", lowered)
+
+
+class TheOrchestratorAssertsItsOwnTier(unittest.TestCase):
+    """Every item's tier is asserted; the asserting session's never was.
+
+    A cold-started orchestrator resolved to `claude-sonnet-5` and began Phase 0
+    with nothing reporting it, while "Opus orchestrates" held only by luck. The
+    trap that hides it is `session list`'s `runtime.effective`, which keeps
+    reporting the previous turn's model after a `runtime set`.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_names_the_per_session_lever(self):
+        self.assertIn("session runtime set", self.text)
+
+    def test_it_warns_that_effective_is_stale(self):
+        self.assertIn("stale snapshot", self.text)
+
+    def test_it_names_the_authoritative_field(self):
+        self.assertIn("prompt_runtime", self.text)
+
+
+class PromptDeliveryIsCountedNotInferred(unittest.TestCase):
+    """A retry loop guarded on anything but the turn count double-delivers.
+
+    `session prompt` prints errors on stdout and exits 0 without delivering, so
+    a loop that retries on a non-zero status eventually sends an orchestrator
+    its marching orders twice.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_offers_the_turn_count_as_the_delivery_check(self):
+        self.assertIn("session history", self.text)
+
+    def test_it_forbids_guarding_a_resend_on_the_exit_status(self):
+        self.assertIn("re-sends on a non-zero exit", self.text)
+
+
+class AWedgeIsRecheckedAndOutwaited(unittest.TestCase):
+    """The list-endpoints-answer classification expires, and restarts cost more.
+
+    The same wedge spread to `workspace list`, `session list` and
+    `session status` within the hour, then cleared on its own while a guarded
+    retry dispatched the waiting item.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_marks_the_classification_as_a_snapshot(self):
+        self.assertIn("snapshot, not a diagnosis", self.text)
+
+    def test_it_prefers_waiting_to_restarting(self):
+        self.assertIn("Prefer waiting", self.text)
+
+
+class MonitorsSurviveTheRunner(unittest.TestCase):
+    """A monitor sourced only from the daemon goes blind, silently.
+
+    Observed: a poll loop written as query-parse-echo swallowed a full outage
+    and read as a healthy, unchanged run.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "monitor.md",
+        ))
+
+    def test_it_requires_a_runner_independent_channel(self):
+        self.assertIn("cannot take down with it", self.text)
+
+    def test_it_requires_emitting_when_the_source_fails(self):
+        self.assertIn("runner unreachable", self.text)
+
+
+class UnstartedCIIsNotTheItemsFailure(unittest.TestCase):
+    """Actions unavailable stalls the whole model, so it needs its own path.
+
+    A billing block failed every job in seconds with no steps, which the CI-green
+    ready-flip gate turns into a wave that can never release.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "monitor.md",
+        ))
+
+    def test_it_separates_a_job_that_never_ran_from_a_red_check(self):
+        self.assertIn("never started is not the item's failure", self.text)
+
+    def test_it_confirms_against_the_default_branch_before_blaming_the_run(self):
+        self.assertIn("Confirm it is environmental", self.text)
+
+    def test_it_forbids_looping_for_a_green_that_cannot_arrive(self):
+        self.assertIn("Do not loop waiting for green", self.text)
+
+    def test_a_substituted_gate_is_re_run_not_trusted(self):
+        self.assertIn("Re-run the gate yourself", self.text)
+
+
+class CitedPathsMustExistInAWorktree(unittest.TestCase):
+    """Paths resolve in the orchestrating session and vanish in the checkout.
+
+    Ten items cited a spec directory the repository's `.gitignore` excluded, so
+    every worktree would have been dispatched without the documents its prompt
+    was built around.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "spawn.md",
+        ))
+
+    def test_it_requires_checking_cited_paths_before_dispatch(self):
+        self.assertIn("readable inside a fresh worktree", self.text)
+
+    def test_it_names_the_check_that_finds_an_ignored_path(self):
+        self.assertIn("git check-ignore", self.text)
+
+    def test_the_configured_gate_is_a_default_not_the_items_gate(self):
+        self.assertIn("not necessarily this item's gate", self.text)
