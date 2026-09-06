@@ -265,9 +265,14 @@ class DispatchSurvivesTheOrchestratorsTurn(unittest.TestCase):
 class IncompleteChecksAreNotResults(unittest.TestCase):
     """A gate that never finished reports no failures, which reads as a pass.
 
-    Two observed shapes: killed by the OS out-of-memory killer on a contended
-    machine, and exited 0 after the tool it wrapped refused an unknown CLI flag.
-    Both were reported as green before the output was read.
+    Two observed shapes: killed before finishing, and exited 0 after the tool it
+    wrapped refused an unknown CLI flag. Both were reported as green before the
+    output was read.
+
+    The first shape has two killers with opposite remedies -- the kernel's OOM
+    killer, and an agent harness reaping backgrounded commands while memory is
+    still free. Six gate runs died to the second while a day was spent lowering
+    worker counts against the first.
     """
 
     def setUp(self):
@@ -472,7 +477,7 @@ class ConcurrentRunsShareOneMachine(unittest.TestCase):
     """Two orchestrations ran against one clone. Each committed the other's
     uncommitted edits, one force-updated the other's branch and rewrote its pull
     request, both authored the same decision number into different features, and
-    the contention killed five gates through the OOM killer.
+    the contention killed six gate runs before they could finish.
     """
 
     def setUp(self):
@@ -498,3 +503,13 @@ class ConcurrentRunsShareOneMachine(unittest.TestCase):
         """Two decisions shipped as the same number, each read before the other
         run appended to the log."""
         self.assertIn("before writing an identifier into it", self.skill)
+
+    def test_the_two_killers_are_told_apart(self):
+        """Their remedies are opposite: a narrower wave for the kernel, the
+        foreground for a harness that reaps background jobs."""
+        workflow = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "standing-implementer-workflow.md",
+        ))
+        self.assertIn("Identify the killer", workflow)
+        self.assertIn("not to background it", workflow)
