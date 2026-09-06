@@ -251,14 +251,41 @@ never prompting it leaves an orchestration that looks started and has never run 
 listed, named after the work-group, and idle forever. Step 3 is not optional bookkeeping; it is
 what binds the session.
 
-What a cold-started session carries, verified rather than assumed: `COMPOZY_SESSION_ID` set (so it
-can `spawn`), the tracker's MCP tools available (so [Phase 0](references/read.md) can read), and
-`gh` authenticated (so PRs can open). What it does **not** gain is the ability to grant MCP to its
-own children — `session new` has no `--mcp-server`, the limitation
-[the runner](references/runner.md) already records. Cold-starting does not make that better or
-worse.
+What a cold-started session carries, verified rather than assumed: `COMPOZY_SESSION_ID` and
+`COMPOZY_AGENT` set (so it can `spawn`), the tracker's MCP tools available (so
+[Phase 0](references/read.md) can read), and `gh` authenticated (so PRs can open). Its children
+are created by `compozy spawn`, which **does** take `--mcp-server`, so they can be granted the
+tracker — only the `session new --worktree` fallback route lacks that, and
+[the runner](references/runner.md) records where that bites.
 
 Refuse only when the bootstrap itself fails, and say which step failed.
+
+### The orchestrating session is not free, and running out of it kills the wave
+
+Phases 0 through 3 are expensive: a whole work-group read, a plan per thin item, a dispatch per
+eligible one. Measured 2026-09-05, an orchestrator spent **a full 200k context window and $6.80
+dispatching two items**, then ended its turn because it had nothing left. With
+`--auto-stop-on-parent` at its default, ending that turn killed both implementers it had just
+started.
+
+Two consequences, and neither is optional:
+
+- **Dispatch before you spend.** Reaching Phase 3 with a nearly full window means the wave starts
+  and immediately dies. If the window is running low, dispatch what is eligible *first* and report
+  afterwards.
+- **The whole skill does not have to run inside the Compozy session.** `spawn` reads its identity
+  from the environment, so a driver session that already holds the tracker's MCP can create a
+  session, never prompt it, export the pair, and dispatch from its own shell:
+
+  ```
+  compozy session new --cwd "$PWD" --agent <agent> -o json      # take the id; do not prompt it
+  export COMPOZY_SESSION_ID=sess-…  COMPOZY_AGENT=<agent>
+  compozy spawn --auto-stop-on-parent=false …
+  ```
+
+  This keeps Phases 0–2 in the session that already has the context and the tracker, and pays no
+  second context window to re-derive them. It is the cheaper route whenever the driver can read
+  the tracker itself; hand the whole invocation over only when it cannot.
 
 ## Selecting the tracker
 

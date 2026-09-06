@@ -127,7 +127,7 @@ only when `cleanup.safe` is true. Removal deletes the linked checkout, never the
 
 | Operation | Command |
 | --- | --- |
-| `spawn(agent, worktree, prompt, provider, model, effort)` | `compozy spawn --agent <agent> --ttl-seconds <n> --workspace <worktree-path> --provider claude --model <model> --reasoning-effort <effort> --prompt-overlay "<prompt>" --name <ITEM-REF> -o json` |
+| `spawn(agent, workspace, prompt, provider, model, effort)` | `compozy spawn --agent <agent> --ttl-seconds <n> --workspace <ws-id> --provider claude --model <model> --reasoning-effort <effort> --auto-stop-on-parent=false --mcp-server <tracker-server> --prompt-overlay "<prompt>" --name <ITEM-REF> -o json` |
 
 **`spawn` requires the caller to be a runner-managed session.** It is an agent command, and outside
 one it refuses before doing anything:
@@ -136,6 +136,11 @@ one it refuses before doing anything:
 identity_required — COMPOZY_SESSION_ID is required for agent commands
 action: run this command from a CompozyOS-managed agent session
 ```
+
+**The identity is a pair, and the second half is only reported once the first is satisfied.**
+Setting `COMPOZY_SESSION_ID` alone yields the same `identity_required` code, now naming
+`COMPOZY_AGENT` — so a run "fixed" by reading the first message fails again at the same point.
+Check both, or the check is worth nothing.
 
 So the orchestrating session must itself be a Compozy session — [Phase 3](spawn.md) checks this
 first, because every other preflight can pass while this one makes dispatch impossible.
@@ -183,6 +188,40 @@ This matters for the tier assertion in [Phase 3](spawn.md): assert the tier agai
 session accepts. `session list -o json` reports the *effective* model in a different vocabulary
 again (`claude-sonnet-5`), so compare tiers, never raw strings.
 
+### The orchestrating session has a tier too, and nothing asserts it
+
+[Phase 3](spawn.md) asserts the tier of every *item*. Nothing asserts the tier of the session
+doing the asserting. A session created by `session new` takes no provider, model or
+reasoning-effort — it resolves to whatever the machine default happens to be that day — so
+"Opus orchestrates" ([D-5](decisions.md)) holds only by luck.
+
+Observed 2026-09-06: a cold-started orchestrator came up on `claude-sonnet-5` and began Phase 0.
+Nothing reported it. It is the same class of bug the item-level assertion exists to catch, one
+level up, and it is worse there: the orchestrator is what computes the graph, sizes the waves and
+decides every item's tier.
+
+**Assert it on the first prompt, and read the right field.**
+
+```
+compozy session runtime set <id> --provider claude --model opus --reasoning-effort high
+compozy session prompt <id> "<the invocation>" --provider claude --model opus --reasoning-effort high
+```
+
+`runtime set` is per session, which is what makes it usable — the machine-wide default is never
+the lever, because it reaches every agent starting in that window, including other repositories'.
+
+**`session list`'s `runtime.effective` is a stale snapshot and will lie to you here.** After a
+`runtime set` it reports `selected` correctly while `effective` still names the model of the
+previous — possibly cancelled — turn. The authoritative value is `prompt_runtime`, carried on the
+active turn's own event:
+
+```
+compozy session events <session-id> -o json     # -> "prompt_runtime": {"model": "opus", …}
+```
+
+A cold start that resolved wrong is cheap to fix in the first minute and expensive after: cancel
+the turn (`session prompt-cancel`), set the runtime, re-send. Do it before Phase 0 reads anything.
+
 ### Retry a prompt with an explicit identity, never a bare re-send
 
 `--message-id` and `--idempotency-key` must be **provided together** -- either alone is an error --
@@ -214,6 +253,18 @@ compozy session inspect <session-id> -o json     # state
 An empty `session_input_queue` is also not evidence of failure — it drains as the prompt is
 consumed, so "queue empty" and "queue never filled" look the same after the fact.
 
+**The cheapest positive signal is the turn count.** `session history` groups by turn, so a prompt
+that landed added exactly one; a prompt that did not left the count where it was. It is one call,
+it needs no event parsing, and it answers the only question a retry loop actually has:
+
+```
+compozy session history <session-id> -o json | jq length     # before, then after
+```
+
+Guard every re-send on it. A retry loop that re-sends on a non-zero exit — or on any signal other
+than the count failing to move — will eventually deliver the same instruction twice, and an
+orchestrator that reads its own marching orders twice is worse than one that never got them.
+
 **Nor is a timeout.** `session prompt` routinely holds the connection open past a two-minute
 client timeout while the prompt is already delivered and the session is working. Killing the
 client changes nothing on the daemon's side. Count events before and after: a session that went
@@ -236,6 +287,18 @@ compozy workspace list      # answers  -> daemon is alive
 compozy workspace info <id> # times out -> the single-resource handler is the wedge
 ```
 
+**That classification is a snapshot, not a diagnosis — re-probe before acting on it.** Observed
+2026-09-06: the same wedge began exactly as described, with the list endpoints answering, and
+roughly an hour later `workspace list`, `session list` and `session status` were timing out too.
+Anything built on "the list routes are fine" — a monitor, a retry loop, a report — was by then
+reading a daemon that answered nothing, and said so only if it had been written to notice.
+
+**It also clears on its own.** That same wedge recovered without intervention, and a guarded retry
+loop dispatched the waiting item the moment it did. Waiting cost one leaf item a delay; a restart
+would have cost every in-flight implementer on the machine, across every repository sharing the
+daemon. **Prefer waiting.** Restarting is a human's call, and the honest way to put it to them is
+with the count of sessions currently `active` — theirs and other runs' alike.
+
 `session resume` does not go through workspace resolution, which is why an already-created session
 can still be re-attached and prompted while new ones cannot be created. Recovering an existing
 session is therefore the first thing to try when dispatch stalls — not a daemon restart, which
@@ -252,6 +315,44 @@ so the pair looks like a substitute. **It is not a complete one:** `session new`
 the [standing workflow](standing-implementer-workflow.md) expects then fail as silently skipped
 steps. Reach for it only knowing that, and say so in the run report.
 
+### A child is stopped with its parent unless you say otherwise
+
+`--auto-stop-on-parent` **defaults to `true`**, and the parent is the orchestrating session, not a
+supervisor process. Ending a turn is a normal stop, so the default cascades it: every implementer
+the wave dispatched is killed mid-work, with uncommitted changes in its worktree, no commit, no
+branch pushed and no pull request.
+
+Observed 2026-09-05. An orchestrator dispatched a two-item wave, reported both implementers live
+and both tiers asserted, then filled its context window — `used: 200111, size: 200000` — and ended
+its turn. Both children died two and twelve minutes later, `health: dead` and not reattachable.
+Each had a nearly complete implementation sitting uncommitted. From the outside the run looked
+finished: the tracker showed both items in progress, the sessions were gone from `session list`,
+and nothing had errored.
+
+**Always pass `--auto-stop-on-parent=false`.** An implementer must outlive the turn that started
+it — that is the whole point of dispatching it. This is not a preference to set deliberately in
+some cases; there is no case in this skill where the default is correct.
+
+**Recovery, when it has already happened:** the work is not lost. A killed child leaves its
+worktree exactly as it was, so run the cheap checks ([the cost discipline](../SKILL.md)) against
+that tree — typecheck, the item's own tests, the gate — and either land what is there or
+re-dispatch a fresh implementer into the *same* worktree with a prompt that names what remains.
+Do not start a new worktree; you would throw away work that is sitting on disk.
+
+### A worktree is not a workspace
+
+`compozy worktree list` and `compozy workspace list` are separate registries, and
+`spawn --workspace` resolves only the second. A worktree the runner just created is **not** a
+workspace: its name, its `wt_*` id and its absolute path all fail with `workspace not found`.
+
+```
+compozy workspace add "<worktree path>"     # -> ws_…
+compozy spawn --workspace ws_… …
+```
+
+`session new --cwd` auto-registers, which is why the orchestrating session never hits this — and
+why it is invisible until the first `spawn` into a fresh worktree.
+
 - **`--ttl-seconds` is mandatory.** There is no default; omitting it is an error. Size it to the
   item, and remember an expired TTL stops a child mid-work.
 - **`--provider`, `--model` and `--reasoning-effort` are the tier assertion.** This is what
@@ -260,8 +361,9 @@ steps. Reach for it only knowing that, and say so in the run report.
   against what resolved; never read the machine default and never change it.
 - **`--provider claude` only.** Compozy's release notes claim end-to-end delivery for Claude Code
   and Hermes; no other provider is dispatched to.
-- `--auto-stop-on-parent` defaults true. For an implementer that must outlive the orchestrating
-  session, set it false deliberately.
+- **`--auto-stop-on-parent=false` is mandatory in practice**, though the flag defaults true. See
+  "A child is stopped with its parent unless you say otherwise" above — the default has already
+  cost one wave.
 - **Grant the selected tracker's MCP server to the child**, when that tracker uses one:
   `--mcp-server <id>`. An MCP server belongs to the session that holds it, not to the machine, so a
   dispatched implementer does not inherit the orchestrator's. Without the grant, every implementer

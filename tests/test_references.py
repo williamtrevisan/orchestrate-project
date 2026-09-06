@@ -207,3 +207,218 @@ class StandingWorkflowIsProjectAgnostic(unittest.TestCase):
     def test_the_gate_still_comes_from_configuration(self):
         """The one project fact it may name is where to read project facts."""
         self.assertIn("project.gate_command", self.text)
+
+
+class DispatchSurvivesTheOrchestratorsTurn(unittest.TestCase):
+    """A wave was lost to a default nobody read.
+
+    `compozy spawn --auto-stop-on-parent` defaults to true, and the parent is
+    the orchestrating session rather than a supervisor process. Ending a turn is
+    a normal stop, so the default cascaded it and killed both implementers of a
+    live wave mid-work, with the code uncommitted in their worktrees.
+
+    The guidance existed as one bullet in a flag list while the canonical
+    `spawn` row a reader copies carried neither that flag nor the MCP grant.
+    These assert the fix where it is actually read: in the command itself.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_the_canonical_spawn_command_disables_auto_stop(self):
+        """The row a reader copies is the row that has to be right."""
+        row = next(
+            line for line in self.runner.splitlines()
+            if line.startswith("| `spawn(")
+        )
+        self.assertIn("--auto-stop-on-parent=false", row)
+
+    def test_the_canonical_spawn_command_grants_the_tracker(self):
+        row = next(
+            line for line in self.runner.splitlines()
+            if line.startswith("| `spawn(")
+        )
+        self.assertIn("--mcp-server", row)
+
+    def test_the_default_is_recorded_with_what_it_cost(self):
+        self.assertIn("defaults to `true`", self.runner)
+        self.assertIn("--auto-stop-on-parent=false", self.spawn)
+
+    def test_a_worktree_is_not_a_workspace(self):
+        """`spawn --workspace` resolves the workspace registry, not the worktree
+        one, and `workspace add` is the one command that closes the gap. Phase 3
+        routed around this for a whole release, paying the MCP grant and the TTL
+        for a limitation that was a missing registration."""
+        self.assertIn("workspace add", self.runner)
+        self.assertIn("workspace add", self.spawn)
+        self.assertIn("workspace not found", self.spawn)
+
+    def test_a_dead_implementer_is_read_before_it_is_replaced(self):
+        """A killed session looks exactly like one that never started; the
+        difference is on disk, in the worktree."""
+        self.assertIn("git -C <worktree> status --short", self.monitor)
+
+
+class IncompleteChecksAreNotResults(unittest.TestCase):
+    """A gate that never finished reports no failures, which reads as a pass.
+
+    Two observed shapes: killed by the OS out-of-memory killer on a contended
+    machine, and exited 0 after the tool it wrapped refused an unknown CLI flag.
+    Both were reported as green before the output was read.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "standing-implementer-workflow.md",
+        ))
+
+    def test_it_separates_did_not_finish_from_passed(self):
+        self.assertIn("is not a gate that passed", self.text)
+
+    def test_it_names_the_exit_zero_trap(self):
+        self.assertIn("Exited 0 having done nothing", self.text)
+
+    def test_it_offers_blast_radius_as_the_honest_fallback(self):
+        lowered = self.text.lower()
+        self.assertIn("blast radius", lowered)
+
+
+class TheOrchestratorAssertsItsOwnTier(unittest.TestCase):
+    """Every item's tier is asserted; the asserting session's never was.
+
+    A cold-started orchestrator resolved to `claude-sonnet-5` and began Phase 0
+    with nothing reporting it, while "Opus orchestrates" held only by luck. The
+    trap that hides it is `session list`'s `runtime.effective`, which keeps
+    reporting the previous turn's model after a `runtime set`.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_names_the_per_session_lever(self):
+        self.assertIn("session runtime set", self.text)
+
+    def test_it_warns_that_effective_is_stale(self):
+        self.assertIn("stale snapshot", self.text)
+
+    def test_it_names_the_authoritative_field(self):
+        self.assertIn("prompt_runtime", self.text)
+
+
+class PromptDeliveryIsCountedNotInferred(unittest.TestCase):
+    """A retry loop guarded on anything but the turn count double-delivers.
+
+    `session prompt` prints errors on stdout and exits 0 without delivering, so
+    a loop that retries on a non-zero status eventually sends an orchestrator
+    its marching orders twice.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_offers_the_turn_count_as_the_delivery_check(self):
+        self.assertIn("session history", self.text)
+
+    def test_it_forbids_guarding_a_resend_on_the_exit_status(self):
+        self.assertIn("re-sends on a non-zero exit", self.text)
+
+
+class AWedgeIsRecheckedAndOutwaited(unittest.TestCase):
+    """The list-endpoints-answer classification expires, and restarts cost more.
+
+    The same wedge spread to `workspace list`, `session list` and
+    `session status` within the hour, then cleared on its own while a guarded
+    retry dispatched the waiting item.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_marks_the_classification_as_a_snapshot(self):
+        self.assertIn("snapshot, not a diagnosis", self.text)
+
+    def test_it_prefers_waiting_to_restarting(self):
+        self.assertIn("Prefer waiting", self.text)
+
+
+class MonitorsSurviveTheRunner(unittest.TestCase):
+    """A monitor sourced only from the daemon goes blind, silently.
+
+    Observed: a poll loop written as query-parse-echo swallowed a full outage
+    and read as a healthy, unchanged run.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "monitor.md",
+        ))
+
+    def test_it_requires_a_runner_independent_channel(self):
+        self.assertIn("cannot take down with it", self.text)
+
+    def test_it_requires_emitting_when_the_source_fails(self):
+        self.assertIn("runner unreachable", self.text)
+
+
+class UnstartedCIIsNotTheItemsFailure(unittest.TestCase):
+    """Actions unavailable stalls the whole model, so it needs its own path.
+
+    A billing block failed every job in seconds with no steps, which the CI-green
+    ready-flip gate turns into a wave that can never release.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "monitor.md",
+        ))
+
+    def test_it_separates_a_job_that_never_ran_from_a_red_check(self):
+        self.assertIn("never started is not the item's failure", self.text)
+
+    def test_it_confirms_against_the_default_branch_before_blaming_the_run(self):
+        self.assertIn("Confirm it is environmental", self.text)
+
+    def test_it_forbids_looping_for_a_green_that_cannot_arrive(self):
+        self.assertIn("Do not loop waiting for green", self.text)
+
+    def test_a_substituted_gate_is_re_run_not_trusted(self):
+        self.assertIn("Re-run the gate yourself", self.text)
+
+
+class CitedPathsMustExistInAWorktree(unittest.TestCase):
+    """Paths resolve in the orchestrating session and vanish in the checkout.
+
+    Ten items cited a spec directory the repository's `.gitignore` excluded, so
+    every worktree would have been dispatched without the documents its prompt
+    was built around.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "spawn.md",
+        ))
+
+    def test_it_requires_checking_cited_paths_before_dispatch(self):
+        self.assertIn("readable inside a fresh worktree", self.text)
+
+    def test_it_names_the_check_that_finds_an_ignored_path(self):
+        self.assertIn("git check-ignore", self.text)
+
+    def test_the_configured_gate_is_a_default_not_the_items_gate(self):
+        self.assertIn("not necessarily this item's gate", self.text)
