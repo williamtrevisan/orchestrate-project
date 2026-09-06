@@ -493,3 +493,8 @@ class ConcurrentRunsShareOneMachine(unittest.TestCase):
     def test_machine_headroom_is_part_of_the_dispatch_preflight(self):
         self.assertIn("enough free memory", self.spawn)
         self.assertIn("All seven must hold", self.spawn)
+
+    def test_shared_identifiers_are_read_from_the_trunk(self):
+        """Two decisions shipped as the same number, each read before the other
+        run appended to the log."""
+        self.assertIn("before writing an identifier into it", self.skill)

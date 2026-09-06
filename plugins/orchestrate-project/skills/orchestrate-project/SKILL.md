@@ -133,6 +133,11 @@ So, before dispatching:
 - **Prefer plumbing over checkouts in a shared clone.** `git read-tree` into a temporary index plus
   `commit-tree` builds a commit without touching a working tree another agent is editing;
   `checkout`, `reset --hard` and `stash` all destroy work that was never yours.
+- **Re-read a shared log on the trunk before writing an identifier into it.** Decision numbers,
+  requirement ids and migration names are allocated by reading, and a number read before the other
+  run appended is already stale. This one is not theoretical: two decisions shipped as the same
+  number, one of them cited across four features and three items before anyone noticed. Take the
+  number from the trunk, not from your working copy.
 - **Check machine headroom before dispatching a wave.** Implementers run real test suites. On a box
   already running another orchestration, the OOM killer takes whichever process asks last, and a
   gate killed that way reports no failures — which reads as a pass ([the standing
