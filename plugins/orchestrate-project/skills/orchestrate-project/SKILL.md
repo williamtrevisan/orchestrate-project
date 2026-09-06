@@ -273,19 +273,22 @@ Two consequences, and neither is optional:
 - **Dispatch before you spend.** Reaching Phase 3 with a nearly full window means the wave starts
   and immediately dies. If the window is running low, dispatch what is eligible *first* and report
   afterwards.
-- **The whole skill does not have to run inside the Compozy session.** `spawn` reads its identity
-  from the environment, so a driver session that already holds the tracker's MCP can create a
-  session, never prompt it, export the pair, and dispatch from its own shell:
+- **Do not try to dispatch from an outside shell by borrowing the identity.** The environment
+  pair is necessary and **not sufficient**. Exporting `COMPOZY_SESSION_ID` and `COMPOZY_AGENT`
+  from a session created by `session new` gets past `identity_required` and then hangs:
+  `POST /api/agent/spawn` never returns, while `session list`, `workspace info`, `worktree
+  status` and `session prompt` all answer instantly from the same shell.
 
-  ```
-  compozy session new --cwd "$PWD" --agent <agent> -o json      # take the id; do not prompt it
-  export COMPOZY_SESSION_ID=sess-…  COMPOZY_AGENT=<agent>
-  compozy spawn --auto-stop-on-parent=false …
-  ```
+  Measured 2026-09-06 across **ten attempts** and four configurations — unbound parent, parent
+  re-attached with `session resume`, `--no-notify-creator`, and a parent in the middle of a real
+  turn (75k tokens, `done: end_turn`). Every one timed out; none created a child, so the failure
+  is at least clean. The only spawns that ever succeeded on this machine came from **inside** an
+  agent's own turn.
 
-  This keeps Phases 0–2 in the session that already has the context and the tracker, and pays no
-  second context window to re-derive them. It is the cheaper route whenever the driver can read
-  the tracker itself; hand the whole invocation over only when it cannot.
+  So the cost problem above has exactly one remedy that is known to work: **dispatch early in the
+  turn**, before the window is spent. Handing the invocation to a fresh session and driving it
+  from outside remains the documented cold start; taking its identity and skipping the session is
+  not a shortcut, it is a hang.
 
 ## Selecting the tracker
 
