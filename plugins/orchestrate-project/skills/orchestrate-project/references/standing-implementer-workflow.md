@@ -77,6 +77,25 @@ to the project, and the project's own setup is what handles them. Where one bite
 **report it rather than working around it silently**: a workaround that lives only in your session
 is invisible to the next implementer.
 
+**A gate that did not finish is not a gate that passed, and not one that failed either.** Two
+shapes of this, both of which read as a result if you only look at the exit status:
+
+- **Killed, not failed.** A gate stopped by the OS out-of-memory killer, a TTL, or a `Ctrl-C`
+  reports no failures because it never got far enough to find any. On a machine running several
+  orchestrations at once this is common, not exotic. Say "the gate did not complete", never "the
+  gate passed", and name why.
+- **Exited 0 having done nothing.** A wrapper that shells out can exit 0 while the tool it invoked
+  refused its arguments — an unknown flag, a bad config path — so a run that never executed a
+  single test looks identical to a clean one. Read the output, not the status. Observed
+  2026-09-05: a full suite invoked with an unsupported CLI flag aborted on the parse error and
+  still exited 0, and was reported as green until the log was actually read.
+
+**When the full gate genuinely cannot run, verify the blast radius instead — and say that is what
+you did.** Find every consumer of what you changed and run their tests; combine that with a
+project-wide typecheck and a lint of the changed files. That is a real, bounded argument, and it
+is honest in a way "gate green" would not be. It is a fallback for a broken machine, never a
+substitute chosen for speed.
+
 **A locally green gate is not always a green CI.** Where the project measures something locally
 unmeasurable — coverage without a driver installed, a check that only runs on CI hardware — write
 the change as if it were enforced, because in CI it is.

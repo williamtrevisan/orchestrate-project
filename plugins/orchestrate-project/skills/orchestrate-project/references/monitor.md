@@ -67,6 +67,38 @@ self-heal — an in-flight run replaced by a newer one. Do not escalate.
 
 Only an **unsuperseded** `FAILURE`/`ERROR` — no newer commit, no fresh run — goes to triage.
 
+## 3.5 A dead implementer is not a lost item — read its worktree
+
+An implementer can stop without failing: a killed session, an expired TTL, a parent that ended its
+turn ([the runner](runner.md) on `--auto-stop-on-parent`). What that looks like from here is
+indistinguishable from an item that never started — the session is gone from `session list`, the
+branch never moved, no pull request exists, and nothing errored anywhere.
+
+**Before concluding anything, look inside the worktree.** The checkout survives the session, so
+the work usually does too:
+
+```
+git -C <worktree> status --short      # uncommitted work = the item got somewhere
+git -C <worktree> log --oneline -3    # commits = it got further
+```
+
+Then decide from evidence rather than from the empty branch:
+
+| What the worktree holds | What to do |
+| --- | --- |
+| Nothing | Re-dispatch normally; the item never started |
+| Uncommitted work | Run the cheap checks against **that tree** — typecheck, the item's own tests, the gate. Then either land it, or re-dispatch into the *same* worktree with a prompt naming precisely what remains |
+| Commits, no PR | Push and open the draft; the implementer died between step 3 and step 6 of the [standing workflow](standing-implementer-workflow.md) |
+
+**Never start a fresh worktree for an item whose old one holds work.** That silently throws away
+completed work and pays for it a second time.
+
+**Diagnose before re-dispatching, and put the diagnosis in the prompt.** A fresh implementer that
+must rediscover why two tests fail costs what the first one already spent. Observed 2026-09-05:
+two killed implementers left one item complete and one two assertions short; the second's failure
+was a single markup decision, and naming it in the re-dispatch prompt turned a full re-run into a
+two-line change.
+
 ## 4. Genuine CI failure
 
 1. Enter **that item's own worktree** — not the orchestrating session's, not another item's.

@@ -207,3 +207,81 @@ class StandingWorkflowIsProjectAgnostic(unittest.TestCase):
     def test_the_gate_still_comes_from_configuration(self):
         """The one project fact it may name is where to read project facts."""
         self.assertIn("project.gate_command", self.text)
+
+
+class DispatchSurvivesTheOrchestratorsTurn(unittest.TestCase):
+    """A wave was lost to a default nobody read.
+
+    `compozy spawn --auto-stop-on-parent` defaults to true, and the parent is
+    the orchestrating session rather than a supervisor process. Ending a turn is
+    a normal stop, so the default cascaded it and killed both implementers of a
+    live wave mid-work, with the code uncommitted in their worktrees.
+
+    The guidance existed as one bullet in a flag list while the canonical
+    `spawn` row a reader copies carried neither that flag nor the MCP grant.
+    These assert the fix where it is actually read: in the command itself.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_the_canonical_spawn_command_disables_auto_stop(self):
+        """The row a reader copies is the row that has to be right."""
+        row = next(
+            line for line in self.runner.splitlines()
+            if line.startswith("| `spawn(")
+        )
+        self.assertIn("--auto-stop-on-parent=false", row)
+
+    def test_the_canonical_spawn_command_grants_the_tracker(self):
+        row = next(
+            line for line in self.runner.splitlines()
+            if line.startswith("| `spawn(")
+        )
+        self.assertIn("--mcp-server", row)
+
+    def test_the_default_is_recorded_with_what_it_cost(self):
+        self.assertIn("defaults to `true`", self.runner)
+        self.assertIn("--auto-stop-on-parent=false", self.spawn)
+
+    def test_a_worktree_is_not_a_workspace(self):
+        """`spawn --workspace` resolves the workspace registry, not the worktree
+        one, and `workspace add` is the one command that closes the gap. Phase 3
+        routed around this for a whole release, paying the MCP grant and the TTL
+        for a limitation that was a missing registration."""
+        self.assertIn("workspace add", self.runner)
+        self.assertIn("workspace add", self.spawn)
+        self.assertIn("workspace not found", self.spawn)
+
+    def test_a_dead_implementer_is_read_before_it_is_replaced(self):
+        """A killed session looks exactly like one that never started; the
+        difference is on disk, in the worktree."""
+        self.assertIn("git -C <worktree> status --short", self.monitor)
+
+
+class IncompleteChecksAreNotResults(unittest.TestCase):
+    """A gate that never finished reports no failures, which reads as a pass.
+
+    Two observed shapes: killed by the OS out-of-memory killer on a contended
+    machine, and exited 0 after the tool it wrapped refused an unknown CLI flag.
+    Both were reported as green before the output was read.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "standing-implementer-workflow.md",
+        ))
+
+    def test_it_separates_did_not_finish_from_passed(self):
+        self.assertIn("is not a gate that passed", self.text)
+
+    def test_it_names_the_exit_zero_trap(self):
+        self.assertIn("Exited 0 having done nothing", self.text)
+
+    def test_it_offers_blast_radius_as_the_honest_fallback(self):
+        lowered = self.text.lower()
+        self.assertIn("blast radius", lowered)

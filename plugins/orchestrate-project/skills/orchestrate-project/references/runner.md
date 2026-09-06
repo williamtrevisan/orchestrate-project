@@ -127,7 +127,7 @@ only when `cleanup.safe` is true. Removal deletes the linked checkout, never the
 
 | Operation | Command |
 | --- | --- |
-| `spawn(agent, worktree, prompt, provider, model, effort)` | `compozy spawn --agent <agent> --ttl-seconds <n> --workspace <worktree-path> --provider claude --model <model> --reasoning-effort <effort> --prompt-overlay "<prompt>" --name <ITEM-REF> -o json` |
+| `spawn(agent, workspace, prompt, provider, model, effort)` | `compozy spawn --agent <agent> --ttl-seconds <n> --workspace <ws-id> --provider claude --model <model> --reasoning-effort <effort> --auto-stop-on-parent=false --mcp-server <tracker-server> --prompt-overlay "<prompt>" --name <ITEM-REF> -o json` |
 
 **`spawn` requires the caller to be a runner-managed session.** It is an agent command, and outside
 one it refuses before doing anything:
@@ -136,6 +136,11 @@ one it refuses before doing anything:
 identity_required — COMPOZY_SESSION_ID is required for agent commands
 action: run this command from a CompozyOS-managed agent session
 ```
+
+**The identity is a pair, and the second half is only reported once the first is satisfied.**
+Setting `COMPOZY_SESSION_ID` alone yields the same `identity_required` code, now naming
+`COMPOZY_AGENT` — so a run "fixed" by reading the first message fails again at the same point.
+Check both, or the check is worth nothing.
 
 So the orchestrating session must itself be a Compozy session — [Phase 3](spawn.md) checks this
 first, because every other preflight can pass while this one makes dispatch impossible.
@@ -252,6 +257,44 @@ so the pair looks like a substitute. **It is not a complete one:** `session new`
 the [standing workflow](standing-implementer-workflow.md) expects then fail as silently skipped
 steps. Reach for it only knowing that, and say so in the run report.
 
+### A child is stopped with its parent unless you say otherwise
+
+`--auto-stop-on-parent` **defaults to `true`**, and the parent is the orchestrating session, not a
+supervisor process. Ending a turn is a normal stop, so the default cascades it: every implementer
+the wave dispatched is killed mid-work, with uncommitted changes in its worktree, no commit, no
+branch pushed and no pull request.
+
+Observed 2026-09-05. An orchestrator dispatched a two-item wave, reported both implementers live
+and both tiers asserted, then filled its context window — `used: 200111, size: 200000` — and ended
+its turn. Both children died two and twelve minutes later, `health: dead` and not reattachable.
+Each had a nearly complete implementation sitting uncommitted. From the outside the run looked
+finished: the tracker showed both items in progress, the sessions were gone from `session list`,
+and nothing had errored.
+
+**Always pass `--auto-stop-on-parent=false`.** An implementer must outlive the turn that started
+it — that is the whole point of dispatching it. This is not a preference to set deliberately in
+some cases; there is no case in this skill where the default is correct.
+
+**Recovery, when it has already happened:** the work is not lost. A killed child leaves its
+worktree exactly as it was, so run the cheap checks ([the cost discipline](../SKILL.md)) against
+that tree — typecheck, the item's own tests, the gate — and either land what is there or
+re-dispatch a fresh implementer into the *same* worktree with a prompt that names what remains.
+Do not start a new worktree; you would throw away work that is sitting on disk.
+
+### A worktree is not a workspace
+
+`compozy worktree list` and `compozy workspace list` are separate registries, and
+`spawn --workspace` resolves only the second. A worktree the runner just created is **not** a
+workspace: its name, its `wt_*` id and its absolute path all fail with `workspace not found`.
+
+```
+compozy workspace add "<worktree path>"     # -> ws_…
+compozy spawn --workspace ws_… …
+```
+
+`session new --cwd` auto-registers, which is why the orchestrating session never hits this — and
+why it is invisible until the first `spawn` into a fresh worktree.
+
 - **`--ttl-seconds` is mandatory.** There is no default; omitting it is an error. Size it to the
   item, and remember an expired TTL stops a child mid-work.
 - **`--provider`, `--model` and `--reasoning-effort` are the tier assertion.** This is what
@@ -260,8 +303,9 @@ steps. Reach for it only knowing that, and say so in the run report.
   against what resolved; never read the machine default and never change it.
 - **`--provider claude` only.** Compozy's release notes claim end-to-end delivery for Claude Code
   and Hermes; no other provider is dispatched to.
-- `--auto-stop-on-parent` defaults true. For an implementer that must outlive the orchestrating
-  session, set it false deliberately.
+- **`--auto-stop-on-parent=false` is mandatory in practice**, though the flag defaults true. See
+  "A child is stopped with its parent unless you say otherwise" above — the default has already
+  cost one wave.
 - **Grant the selected tracker's MCP server to the child**, when that tracker uses one:
   `--mcp-server <id>`. An MCP server belongs to the session that holds it, not to the machine, so a
   dispatched implementer does not inherit the orchestrator's. Without the grant, every implementer

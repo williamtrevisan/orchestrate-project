@@ -18,7 +18,7 @@ work.
 All six must hold. Any miss: report **which** one failed, and dispatch nothing.
 
 ```
-session: COMPOZY_SESSION_ID is set in this session's environment
+session: COMPOZY_SESSION_ID and COMPOZY_AGENT are both set in this session's environment
 runner:  daemon_state()        → .daemon.status == "running"
 runner:  the repository is a registered workspace
 config:  .orchestrate-project.json parses, and carries project.gate_command
@@ -34,6 +34,10 @@ reads as one that does not exist:
 ```
 identity_required — COMPOZY_SESSION_ID is required for agent commands
 ```
+
+**It is a pair, and the second half is only reported once the first is satisfied.** Setting
+`COMPOZY_SESSION_ID` alone returns the same code, now naming `COMPOZY_AGENT` — so a run "fixed"
+by reading the first message fails again at the same point. Check both.
 
 Re-reading it here costs nothing and cannot fail on its own, since the variable belongs to the
 session and no phase between there and here can change it. If it *is* somehow unset by this point,
@@ -149,44 +153,62 @@ Only after the poll expires — confirmed on **both** surfaces — may the creat
 
 ## 6. Start the implementer
 
-**A worktree is dispatched with two calls, not one.** `spawn` is an *agent* command: outside a
-runner-managed session it refuses with `identity_required`, and even from inside one it cannot
-target a worktree — the path is not a registered workspace, so it fails with `workspace not found`.
-[The runner](runner.md) documents both refusals. The pair that works:
+**Register the worktree as a workspace first, then `spawn` into it.** `spawn` is an *agent*
+command: outside a runner-managed session it refuses with `identity_required`, and it resolves
+`--workspace` against the **workspace** registry, not the worktree one — so a worktree the runner
+just created fails with `workspace not found` whether you pass its name, its `wt_*` id or its
+absolute path. That refusal is one command away from gone:
 
 ```
-runner: session_new(worktree, agent, name)      → session id
-runner: session_prompt(id, prompt, provider, model, effort)
+runner: register_workspace(worktree path)       → ws_…
+runner: spawn(agent, ws_…, prompt, provider, model, effort)
 ```
 
-`session new --worktree <name>` starts the session inside an already-`ready` worktree. **The
-session it creates is idle**: a session that is created and never prompted never runs. The prompt
-is what binds it and starts the work.
+```
+compozy workspace add "<worktree path>"
+compozy spawn --agent <agent> --ttl-seconds <n> --workspace ws_… \
+  --provider claude --model <model> --reasoning-effort <effort> \
+  --auto-stop-on-parent=false --mcp-server <tracker-server> \
+  --prompt-overlay "<prompt>" --name <ITEM-REF> -o json
+```
 
-**The tier is asserted on the prompt, not on the session.** `session new` takes no provider, model
-or reasoning-effort — it resolves to the machine default. `session prompt` takes all three, so that
-is where an item's tier travels ([D-5](decisions.md)). Two rules follow, unchanged:
+**Prefer this over `session new --worktree` + `session prompt`.** That pair also dispatches, and
+was the documented route while `workspace not found` looked like a property of worktrees rather
+than a missing registration. It costs three things `spawn` gives you for free: the MCP grant (see
+below), a TTL, and `--auto-stop-on-parent=false`. Keep it only as a fallback when
+`workspace add` itself fails, and say in the run report that you used it.
+
+**`--auto-stop-on-parent=false` is not optional.** The flag defaults `true` and the parent is the
+orchestrating session, so ending a turn kills every implementer the wave just started, mid-work,
+with the code uncommitted in the worktree. [The runner](runner.md) records the wave this cost.
+
+**The tier travels on the dispatch.** `--provider`, `--model` and `--reasoning-effort` are the
+tier assertion ([D-5](decisions.md)). Three rules follow:
 
 - **Never read the machine default, and never change it.** The tier travels with the dispatch.
 - **Verify what resolved and abort the wave on a mismatch, in either direction.** An implementation
   item that silently came up on a high tier is a cost bug; an analysis item that came up on the
   execution tier is a correctness one.
-- **Compare tiers, not strings.** `--model` is validated against the session's own short names
-  (`opus`, `sonnet`, `haiku`, …) and rejects a full model id like `claude-opus-5`, while
-  `session list` reports the resolved model in a third vocabulary (`claude-sonnet-5`). A literal
-  string comparison reports a mismatch that is not one — see
-  [the runner](runner.md) for both vocabularies.
+- **Compare tiers, not strings.** The vocabularies differ between what a flag accepts and what
+  `session list` reports — see [the runner](runner.md) for both. A literal string comparison
+  reports a mismatch that is not one.
 
-**Putting the tier on `session new` is the mistake this section exists to prevent.** It is silently
-accepted and silently ignored, so a high-tier item comes up on the execution default and nothing
-reports it.
+**On the fallback route, putting the tier on `session new` is the mistake to avoid.** It takes no
+provider, model or reasoning-effort; passing them is silently accepted and silently ignored, so a
+high-tier item comes up on the execution default and nothing reports it. There, the tier goes on
+`session prompt`.
 
-### The MCP grant cannot be made on this path
+### The MCP grant, and what to do when you cannot make it
 
-`session new` has no `--mcp-server`. A tracker reached over MCP is therefore **unreachable from
-the child**, and every tracker write the [standing workflow](standing-implementer-workflow.md)
-expects — the optional started-write, the Definition of Done written back, the review-stage
-transition — fails as a silently skipped step. That is the worst shape a failure can take.
+`spawn --mcp-server <id>` grants the child the tracker the run selected. **Make that grant.** An
+MCP server belongs to the session that holds it, not to the machine, so an implementer inherits
+nothing by default.
+
+The fallback route cannot make it at all: `session new` has no `--mcp-server`. There, a tracker
+reached over MCP is **unreachable from the child**, and every tracker write the
+[standing workflow](standing-implementer-workflow.md) expects — the optional started-write, the
+Definition of Done written back, the review-stage transition — fails as a silently skipped step.
+That is the worst shape a failure can take.
 
 Do not dispatch and hope. **Convert the silence into a stated handoff**, in the dispatch prompt:
 
@@ -197,9 +219,10 @@ Do not dispatch and hope. **Convert the silence into a stated handoff**, in the 
 A handoff someone can read beats a step that vanishes. Say so in the run report too, so the gap is
 visible rather than inferred from a missing comment on the item.
 
-`--ttl-seconds` is mandatory on `spawn`. `session new` has no TTL of its own, so an implementer
-started this way runs until it stops or the daemon does — size the work accordingly and rely on
-[Phase 4](monitor.md)'s stall detection rather than on a timeout.
+`--ttl-seconds` is mandatory on `spawn` — there is no default, and an expired TTL stops a child
+mid-work, so size it to the item rather than to the wave. On the fallback route there is no TTL at
+all: an implementer started that way runs until it stops or the daemon does, and
+[Phase 4](monitor.md)'s stall detection is the only backstop.
 
 ## 7. Confirm the implementer is actually running
 
