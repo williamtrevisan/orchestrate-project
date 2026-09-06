@@ -110,11 +110,67 @@ spend, **drop to cheap checks and say so** — do not silently keep spending, an
 stop verifying. A run that reports "validated lightly from here" is honest; one that quietly does
 either is not.
 
+## One orchestration per repository at a time
+
+The reuse check above is about sessions on one work-group. The wider rule is about the
+**repository**: two orchestrations running against the same clone will collide, and the collision
+is silent.
+
+Observed 2026-09-06, all within one run: an agent's uncommitted edits were committed by the other
+session before it had finished writing them; a branch created by one was force-updated by the
+other and its pull request rewritten; both authored the same architectural-decision number into
+different features, because each read the decision log before the other appended to it; and both
+competed for the same machine, which is what made the gate fall to the OOM killer five times.
+
+So, before dispatching:
+
+- **Look for another run.** `compozy session list` shows sessions named for other work-groups, and
+  `worktree list` shows their worktrees. A second orchestration is not a reason to refuse, but it
+  **is** a reason to say so up front and to expect contention.
+- **Never commit another agent's uncommitted work.** A dirty file you did not write is someone
+  else's turn in progress. Read it, work around it, and say it is there — committing it puts your
+  name on a change you cannot explain in review.
+- **Prefer plumbing over checkouts in a shared clone.** `git read-tree` into a temporary index plus
+  `commit-tree` builds a commit without touching a working tree another agent is editing;
+  `checkout`, `reset --hard` and `stash` all destroy work that was never yours.
+- **Check machine headroom before dispatching a wave.** Implementers run real test suites. On a box
+  already running another orchestration, the OOM killer takes whichever process asks last, and a
+  gate killed that way reports no failures — which reads as a pass ([the standing
+  workflow](references/standing-implementer-workflow.md)).
+
 ## The orchestrator does not write code
 
 It reads the work-group, builds the graph, splits it into waves, creates worktrees, starts one
 implementer per item, monitors PRs, CI and reviews, and releases the next wave. **Every line of
 production code is written inside a dispatched worktree**, never in the orchestrating session.
+
+### The boundary holds hardest when the runner is down
+
+A dead runner plus an item sitting two assertions from done is exactly when writing "just this
+one fix" looks reasonable. It is still the orchestrator writing code, and it is still outside the
+process the whole skill exists to keep: no implementer prompt records what was decided, no
+Definition of Done is derived, and the reviewer's only clue is whatever the pull-request body
+happens to admit.
+
+What the orchestrator **may** do with a killed implementer's worktree, none of which is authoring:
+
+- Run the cheap checks and the gate against that tree, and report exactly what passed.
+- Diagnose the remaining failures precisely, and put the diagnosis in the re-dispatch prompt
+  ([Phase 4](references/monitor.md)).
+- Commit, push and open the draft for work the implementer had already finished but not landed.
+
+What it must not do is write the missing change. When dispatch is impossible, **that is the
+report**: name the wedge, name the attempts, land what is verifiable, and leave the item at its
+real state. A run that stops short and says so is honest; one that quietly finishes the work by
+hand has removed the evidence that the runner was broken.
+
+If a human, told all of that, asks for the fix by hand anyway, it is theirs to ask for — write it,
+and say plainly in the pull request that the orchestrator authored it and why.
+
+**When the orchestrator does land a killed implementer's branch, the remote branch name still
+comes from the tracker's rule, never from the runner's `run_branch_namespace`.** Pushing the
+worktree's local name is how a pull request ends up unlinkable from its item — the tracker matches
+on the branch name it published, and `orch/ITEM-1` is not that name.
 
 ## Two boundaries, both zero-exception
 
@@ -194,6 +250,13 @@ that moment — never perform it, never silently skip mentioning it:
   call. Never flip it.
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
+- **A runner that cannot dispatch.** When `spawn` is wedged ([the runner](references/runner.md)),
+  say so with the attempts you made and stop dispatching. **Never restart the daemon to clear
+  it** — a restart kills every in-flight implementer on the machine, including waves from runs
+  this skill cannot see. Naming it is the whole job; the restart is the human's.
+- **CI that never starts.** A red check whose job ran no steps is the repository's condition, not
+  the wave's ([Phase 4](references/monitor.md)). Report it against the default branch's own
+  history and stop; billing, Actions settings and runner registration are never touched here.
 
 ## Before anything: can this session dispatch at all?
 

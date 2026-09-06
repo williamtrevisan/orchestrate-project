@@ -274,6 +274,35 @@ from 2 events to 134 received the prompt, whatever the shell reported.
 idempotency conflict — printed to stdout and exited 0. Never filter runner output, and never read
 an exit status as the result.
 
+### The spawn handler wedges on its own, and only a restart clears it
+
+The `GET /api/workspaces/{id}` wedge below has a sibling that is worse, because the endpoint it
+takes down is the only one this skill cannot work around. **`POST /api/agent/spawn` hangs while
+every other endpoint answers instantly**, so the run reads as healthy until it tries to dispatch,
+and then cannot.
+
+Measured 2026-09-06 across **ten attempts and four configurations**:
+
+| Parent session state | Result |
+| --- | --- |
+| `unbound` — created, never prompted | `context deadline exceeded` |
+| Re-attached with `session resume` | `context deadline exceeded` |
+| With `--no-notify-creator` | `context deadline exceeded` |
+| Mid-turn on a real prompt (75k tokens, `done: end_turn`) | `context deadline exceeded` |
+
+Throughout, from the same shell and the same second: `session list`, `workspace info`,
+`worktree status` and `session prompt` all answered — `session prompt` ran a complete billed turn.
+**None of the ten created a child**, so the failure is at least clean: check `session list` for a
+child named after the item before concluding anything, but expect nothing there.
+
+Do not read the parent's state as the cause. It is not, and treating it as one costs another five
+attempts.
+
+**Never restart the daemon to clear it.** A restart does clear the wedge, and it also kills every
+in-flight implementer on the machine — including waves belonging to other runs, which this skill
+has no way to see or to ask. That makes it a human decision, and it belongs in `SKILL.md`'s
+"Surface, don't auto-do" list rather than in a recovery routine here.
+
 ### When dispatch stalls but the daemon answers
 
 A single wedged handler is indistinguishable from a dead daemon unless the two are told apart
