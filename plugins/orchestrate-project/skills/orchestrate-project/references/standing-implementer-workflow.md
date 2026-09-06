@@ -80,10 +80,22 @@ is invisible to the next implementer.
 **A gate that did not finish is not a gate that passed, and not one that failed either.** Two
 shapes of this, both of which read as a result if you only look at the exit status:
 
-- **Killed, not failed.** A gate stopped by the OS out-of-memory killer, a TTL, or a `Ctrl-C`
-  reports no failures because it never got far enough to find any. On a machine running several
-  orchestrations at once this is common, not exotic. Say "the gate did not complete", never "the
-  gate passed", and name why.
+- **Killed, not failed.** A gate stopped before it finished reports no failures because it never
+  got far enough to find any. Say "the gate did not complete", never "the gate passed", and name
+  why.
+
+  **Identify the killer, because the remedies are opposite.** The OS out-of-memory killer takes
+  the largest process when the machine is genuinely out of memory; the fix there is a narrower
+  wave or a quieter box. But an agent harness may *also* reap **backgrounded** commands under
+  memory pressure — proactively, while several gigabytes are still free — and that fix is simply
+  not to background it. Observed 2026-09-06: six consecutive backgrounded gate runs were reaped,
+  including one pinned to a single worker that died before printing a line; the same gate then ran
+  to completion in the foreground, on the same machine, minutes later, and its three checks were
+  green. A whole day was spent lowering worker counts against the wrong cause.
+
+  This is the second, independent reason for the foreground rule at the top of this page. The
+  first is that a turn ending on a background job never sees its result. The second is that the
+  job may not survive to produce one.
 - **Exited 0 having done nothing.** A wrapper that shells out can exit 0 while the tool it invoked
   refused its arguments — an unknown flag, a bad config path — so a run that never executed a
   single test looks identical to a clean one. Read the output, not the status. Observed

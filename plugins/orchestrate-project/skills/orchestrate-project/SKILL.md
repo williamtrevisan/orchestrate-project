@@ -120,7 +120,9 @@ Observed 2026-09-06, all within one run: an agent's uncommitted edits were commi
 session before it had finished writing them; a branch created by one was force-updated by the
 other and its pull request rewritten; both authored the same architectural-decision number into
 different features, because each read the decision log before the other appended to it; and both
-competed for the same machine, which is what made the gate fall to the OOM killer five times.
+competed for the same box, and the gate was killed before finishing six times — by the agent
+harness reaping a backgrounded command under memory pressure, not by the kernel. The remedy turned
+out to be the foreground, not a narrower wave.
 
 So, before dispatching:
 
@@ -138,9 +140,10 @@ So, before dispatching:
   run appended is already stale. This one is not theoretical: two decisions shipped as the same
   number, one of them cited across four features and three items before anyone noticed. Take the
   number from the trunk, not from your working copy.
-- **Check machine headroom before dispatching a wave.** Implementers run real test suites. On a box
-  already running another orchestration, the OOM killer takes whichever process asks last, and a
-  gate killed that way reports no failures — which reads as a pass ([the standing
+- **Check machine headroom before dispatching a wave.** Implementers run real test suites, and on a
+  box already running another orchestration something gets killed — the kernel's OOM killer, or an
+  agent harness reaping backgrounded commands while memory is still free. Either way the gate
+  reports no failures, which reads as a pass ([the standing
   workflow](references/standing-implementer-workflow.md)).
 
 ## The orchestrator does not write code
