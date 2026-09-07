@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The version check diffs against the pull request's base; a shallow
+          # clone has no base to diff against.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -30,3 +34,22 @@ jobs:
           else
             echo "init.py not written yet (T12-T15); skipping"
           fi
+
+      - name: Refuse a shipped change that reuses the published version
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE" "$HEAD" > /tmp/changed.txt
+          MANIFEST=plugins/orchestrate-project/.claude-plugin/plugin.json
+          # `-` means the manifest does not exist on the base: a new plugin,
+          # which nothing has published yet.
+          if git cat-file -e "$BASE:$MANIFEST" 2>/dev/null; then
+            git show "$BASE:$MANIFEST" > /tmp/base-plugin.json
+            BASE_MANIFEST=/tmp/base-plugin.json
+          else
+            BASE_MANIFEST=-
+          fi
+          python3 .github/scripts/check_version_bump.py /tmp/changed.txt "$BASE_MANIFEST"
