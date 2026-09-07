@@ -129,7 +129,9 @@ the original pass.
 
 ### High-tier implementers: one at a time
 
-The general concurrency cap is 4 ([Phase 3](references/spawn.md)); for high-tier items it is **1**.
+The general concurrency cap is **2**, not a preference but the runner's measured ceiling —
+a daemon boot serves about two dispatches and then blocks every further one ([the
+runner](references/runner.md)). For high-tier items it is **1**.
 They run for hours and are the item most likely to exhaust a quota — one did. Execution-tier items
 keep the normal cap.
 
@@ -326,10 +328,19 @@ Stopping here would be wrong. The user asked for a dispatch; a session that cann
 setup problem, and the setup is one command away. **Create the session and run inside it.**
 
 ```
-1. Reuse before creating.   compozy session list -o json
-                            An attachable session already named for this work-group is the one to
-                            use — a second session orchestrating the same items would dispatch the
-                            same wave twice.
+1. Check for a live run.    compozy session list -o json
+                            What must not happen is two orchestrations of the same work-group
+                            running at once, dispatching the same wave twice. That is a question
+                            about a session that is `running` or `prompting` — not a reason to
+                            inherit an old one. **Every run creates its own session.**
+
+                            Reusing was the previous instruction and it is unreachable: it asked
+                            for an `attachable` session, and a session is attachable only while a
+                            runtime is live, which ends with the turn. Every attempt to reuse one
+                            failed — `has a dead runtime`, `session not attachable`,
+                            `identity_stale` — and an inherited session would arrive with its
+                            context window already spent, which is how one run's orchestrator
+                            filled 200k on phases 0-3 and ended the turn on top of its own wave.
 
 2. Otherwise create one.    compozy session new --cwd "$PWD" \
                                 --agent <configured default> \

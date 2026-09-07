@@ -707,3 +707,63 @@ class DaemonLifecycleIsDocumentedWhereItLies(unittest.TestCase):
         looks exactly like one that died."""
         self.assertIn("does not start it", self.spawn)
         self.assertIn("active_prompt: false", self.spawn)
+
+
+class SpawnBudgetIsTheOperatingLimit(unittest.TestCase):
+    """Measured across three daemon boots: two, two and three children, then
+    every further spawn blocked. It blocks rather than refusing, and once
+    blocked nothing short of a restart clears it -- not TTL expiry, not an idle
+    machine, not killing the children's leftover processes.
+
+    Four mechanisms have been published and falsified. These pin the measurement
+    and the operating rule, which is what survived all four.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+
+    def test_the_cap_matches_what_the_runner_measured(self):
+        """A documented cap of 4 sent waves past a ceiling of about 2, where the
+        extra dispatches did not error -- they hung."""
+        self.assertIn("concurrency cap is **2**", self.skill)
+        self.assertNotIn("concurrency cap is 4", self.skill)
+
+    def test_blocking_is_distinguished_from_refusing(self):
+        self.assertIn("blocks rather than refusing", self.runner)
+
+    def test_the_failed_recoveries_are_listed(self):
+        """Each was tried; listing them stops the next run retrying them."""
+        self.assertIn("Once blocked, it stays blocked", self.runner)
+        self.assertIn("killing the children's leftover processes", self.runner)
+
+    def test_no_fifth_mechanism_is_claimed(self):
+        self.assertIn("No mechanism is claimed here", self.runner)
+
+
+class EveryRunCreatesItsOwnSession(unittest.TestCase):
+    """The cold start said to reuse an `attachable` session named for the work
+    group. A session is attachable only while a runtime is live, and that ends
+    with the turn, so the branch was unreachable -- every reuse attempt failed.
+    The thing worth guarding is two orchestrations of one group running at once,
+    which is a question about a running session, not a reason to inherit a dead
+    one.
+    """
+
+    def setUp(self):
+        self.skill = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project", "SKILL.md",
+        ))
+
+    def test_the_run_creates_its_own_session(self):
+        self.assertIn("Every run creates its own session", self.skill)
+
+    def test_the_guard_is_a_live_run_not_an_inherited_one(self):
+        self.assertIn("Check for a live run", self.skill)
+        self.assertNotIn("Reuse before creating", self.skill)
+
+    def test_the_withdrawn_rule_keeps_its_evidence(self):
+        """Naming the errors stops someone restoring the rule."""
+        for symptom in ("dead runtime", "not attachable", "identity_stale"):
+            self.assertIn(symptom, self.skill)
