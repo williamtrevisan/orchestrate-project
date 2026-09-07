@@ -343,9 +343,21 @@ What survives as measured fact, and nothing more:
 - The only spawns ever observed to succeed happened on 2026-09-05, within hours of the daemon
   starting. Nothing has succeeded since, across two days and twelve attempts.
 
-**Stop trying to characterise it from the caller's side.** Four call shapes and two call sites have
-now been tried; each cost time and none moved it. Treat a hanging `spawn` as a daemon-level fault,
-make **two** attempts, and report.
+**Stop trying to characterise it from the caller's side.** Four call shapes and two call sites were
+tried; each cost time and none moved it. Treat a hanging `spawn` as a daemon-level fault, make
+**two** attempts, and report.
+
+**Suspect the daemon's age first, and put it in the report.** Restarting resolved this instantly —
+a probe spawn returned a child in seconds after twelve failures across two days. The process had
+been up 16 hours and was answering every read while no longer able to create children. It was a
+degraded process the whole time, and every theory about endpoints, flags and call sites was chasing
+a symptom.
+
+```
+P=$(cat ~/.compozy/daemon.lock); ps -o etime= -p "$P"
+```
+
+An old daemon that reads fine and cannot spawn is the leading suspect, not the last one.
 
 **Never restart the daemon yourself.** It is the only thing likely to clear this, and it kills
 every in-flight implementer on the machine — including waves belonging to other runs. That makes
@@ -362,6 +374,21 @@ compozy worktree list     # a `running` worktree whose session is `done` is a st
 ```
 
 Say plainly whether the restart would interrupt anything, and let the human decide.
+
+**When the human says yes, the documented commands are not enough.** Every step of this was
+observed on 2026-09-07:
+
+| Step | What happens | What works |
+| --- | --- | --- |
+| `compozy daemon stop` | prints `daemon is not running` while the process is alive | read `~/.compozy/daemon.lock` for the pid |
+| `ps \| grep compozy` | lists nothing, also while it is alive | `ls -d /proc/<pid>`, and `fuser ~/.compozy/daemon.sock` for who holds it |
+| `kill -TERM` | ignored, twice | escalate to `kill -KILL` after a bounded wait |
+| `compozy daemon start` | boots the daemon, then kills it — the log reads `received shutdown signal: terminated` about 40s in, because session repair over a large `compozy.db` outlives the CLI's readiness wait | `setsid nohup compozy daemon start --foreground >…/logs/manual-start.log 2>&1 </dev/null &`, then wait for `daemon.sock` to appear |
+
+**A forced kill is not free.** `compozy.db` was 91 MB with a 4.5 MB unapplied WAL, and the next boot
+spent minutes on recovery and session repair before the socket appeared. Wait for the socket rather
+than concluding the start failed — `daemon start` will have already reported a readiness timeout it
+caused itself.
 
 ### When dispatch stalls but the daemon answers
 
