@@ -200,11 +200,39 @@ mishandle. **This holds only while the chain is intact.** If a recompute in step
 dependency the chain does not cover — a blocker added on the tracker mid-run — the chain is stale.
 Re-linearize and report it; never dispatch the item against a base missing one of its parents.
 
+## Release in the same turn that flips the PR
+
+A ready flip and the dispatch it releases belong to one turn. Splitting them is the most reliable
+way this skill stalls: the flip is satisfying, it reads like an ending, and the turn closes on it.
+
+Observed 2026-09-06 — the pattern repeated three times in a ten-item run. The orchestrator flipped
+a PR out of draft, wrote its report, and ended the turn with the newly released item never
+dispatched. **Nothing reopens the turn.** Not the internal monitor, not the daemon, not the
+released item's own eligibility. Each time it cost the wall-clock until a person noticed a run that
+looked finished and was not.
+
+So the order inside the turn matters, and it is the reverse of the order that feels natural:
+
+1. Flip the PR out of draft.
+2. **Immediately compute what that release unblocks, and dispatch it.**
+3. *Then* report — the report names both the flip and the dispatch.
+
+**Report before dispatching and the dispatch will not happen.** Where the window is too small to
+do both, say so explicitly and name the item left undispatched, so the next prompt starts from a
+stated gap rather than from a run that appears complete.
+
+This is the same failure as ending a turn with work uncommitted ([the runner](runner.md)) seen from
+the coordination side: the state is consistent, nothing errored, and the run is simply stopped.
+
 ## Ending
 
 The run ends when every dispatchable item has a PR **out of draft** and reported review-ready —
 never when anything is merged. An item whose PR is still a draft is still in progress, however
 long it has been open.
+
+**"Idle with items left" is not an ending, it is a stall.** Before reporting a run finished, check
+that every item is either review-ready, deliberately held with a stated reason, or has a live
+implementer. An item that is none of those was dropped between turns.
 
 **The stack merges as a unit, and a human merges it.** `gh stack merge` is theirs to run, after
 review, and so is deciding whether to run this skill again afterwards. Both zero-exception

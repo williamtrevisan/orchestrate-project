@@ -60,6 +60,22 @@ uses. **Treat only `daemon`, `provider:claude` and worktree categories as blocki
 | `cleanup_evidence(ref)` | `compozy worktree exit <ref> -o json` → the exit plan, including `cleanup.safe` |
 | `remove_worktree(ref)` | `compozy worktree remove <ref> --force -o json` |
 
+**Always name the worktree after the item, and never let the runner name it.** A worktree created
+without an explicit name gets a generated one — `calm-badger` on 2026-09-06, for an item whose nine
+siblings were `jur-129` … `jur-137`. Nothing breaks at dispatch, which is what makes it dangerous:
+it breaks later, in recovery. Every procedure in this skill for a stopped implementer begins by
+reading its worktree ([Phase 4](monitor.md)), and a worktree whose path is unguessable cannot be
+read. On that run the recovery check reported "worktree absent" for a worktree that existed and
+held work.
+
+Derive the name from the item reference, deterministically, so that any later session can find it
+from the tracker alone — and record the resolved path in `.orch/<REF>/meta.json` at creation, so a
+name that was generated anyway is still recoverable:
+
+```
+compozy worktree create <item-ref-slug> --branch <branch> --base <base-ref> -o json
+```
+
 **`create` accepts no setup flag.** Bootstrap comes from `[worktrees] setup_command` in
 `~/.compozy/config.toml`, not from the dispatch call. Its siblings there:
 

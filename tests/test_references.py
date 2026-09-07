@@ -586,3 +586,47 @@ class CoordinationIsTheBiggestLineItem(unittest.TestCase):
 
     def test_it_names_the_read_write_ratio_as_the_tell(self):
         self.assertIn("200:1", self.text)
+
+
+class WorktreeNamesAreDeterministic(unittest.TestCase):
+    """A generated worktree name is invisible until recovery needs it.
+
+    One item of ten came up as `calm-badger` beside `jur-129`…`jur-137`. The
+    recovery check reported "worktree absent" for a worktree that existed and
+    held uncommitted work.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+
+    def test_it_forbids_letting_the_runner_name_the_worktree(self):
+        self.assertIn("never let the runner name it", self.text)
+
+    def test_it_requires_recording_the_resolved_path(self):
+        self.assertIn("record the resolved path", self.text)
+
+
+class ReleaseHappensInTheTurnThatFlips(unittest.TestCase):
+    """Flipping a PR and dispatching what it releases are one turn.
+
+    Split three times in one run: the orchestrator flipped, reported, and ended
+    the turn with the released item never dispatched. Nothing reopens the turn.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "advance.md",
+        ))
+
+    def test_it_puts_the_dispatch_before_the_report(self):
+        self.assertIn("Report before dispatching and the dispatch will not happen", self.text)
+
+    def test_it_states_that_nothing_reopens_the_turn(self):
+        self.assertIn("Nothing reopens the turn", self.text)
+
+    def test_idle_with_items_left_is_not_an_ending(self):
+        self.assertIn("is not an ending, it is a stall", self.text)
