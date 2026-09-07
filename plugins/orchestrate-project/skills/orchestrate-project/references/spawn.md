@@ -261,13 +261,10 @@ all: an implementer started that way runs until it stops or the daemon does, and
 `spawn` can time out with the daemon otherwise healthy — [the runner](runner.md) records the
 eleven attempts that mapped it, and what they actually showed.
 
-**First, check where you are calling from.** Every one of those eleven was issued from a shell
-against a session that was not running a turn, and the only spawns ever seen to succeed came from
-inside an agent's own turn. If you are dispatching by lifting a session's identity into a shell,
-that is the likeliest cause and the fix is to stop doing it — prompt the session to run the wave
-instead.
+**Where you call from does not change it.** That was tried — a session prompted to run nothing
+but the `spawn` command hung exactly as a shell does. Do not spend a turn re-testing it.
 
-Then, if it hangs from inside a turn too, three rules, each learned by breaking it:
+Three rules, each learned by breaking it:
 
 - **A timeout is not a failure.** Check `session list` for a child named after the item before
   doing anything else. These hangs created nothing, but that is an observation, not a guarantee,

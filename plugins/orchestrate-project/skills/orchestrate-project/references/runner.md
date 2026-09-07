@@ -290,15 +290,15 @@ from 2 events to 134 received the prompt, whatever the shell reported.
 idempotency conflict — printed to stdout and exited 0. Never filter runner output, and never read
 an exit status as the result.
 
-### `spawn` hangs from an outside shell, and the hang is after the identity check
+### `spawn` hangs after the identity check, wherever it is called from
 
 **`POST /api/agent/spawn` hangs while every other endpoint answers instantly**, so a run reads as
 healthy right up to the moment it dispatches, and then cannot. It looks exactly like the
 `GET /api/workspaces/{id}` wedge below — and the first reading of it was that, which is why the
 remedy came out wrong. It is not the same thing, and the difference decides what to do.
 
-Measured 2026-09-06 across **eleven attempts and four configurations**, every one of them issued
-from a shell rather than from inside an agent turn:
+Measured 2026-09-06 across **eleven attempts and four configurations**, and once more on
+2026-09-07 from inside an agent's own turn:
 
 | Parent session state | Result |
 | --- | --- |
@@ -309,7 +309,7 @@ from a shell rather than from inside an agent turn:
 
 Throughout, from the same shell and the same second: `session list`, `workspace info`,
 `worktree status` and `session prompt` all answered — `session prompt` ran a complete billed turn.
-**None of the eleven created a child**, so the failure is at least clean: check `session list` for a
+**None of the twelve created a child**, so the failure is at least clean: check `session list` for a
 child named after the item before concluding anything, but expect nothing there.
 
 **The identity check is not what hangs.** A *stale* session id — one whose runtime is gone —
@@ -329,18 +329,39 @@ outside shell against a session that was not mid-turn**, and **the only spawns e
 succeed came from inside an agent's own turn** — the first orchestrator of the run dispatched two
 implementers that way, in the same session, minutes before it ended.
 
-The mechanism is inferred, not proven — the one attempt made while a parent's turn was genuinely
-running is ambiguous, because `session health` reported that session `detached` at the same
-moment. Treat the inference as the working theory and the two facts as the guidance.
+**That inference was tested and is false.** On 2026-09-07 a session was prompted to run nothing
+but the `spawn` command, so the call was issued from inside a live agent turn by the agent that
+owned the session. It hung identically — `context deadline exceeded`, no child, `end_turn`, $0.33
+spent to learn it. Where the call is made from is **not** the discriminator.
 
-**So the remedy is not to wait the endpoint out.** Dispatch from inside a turn: prompt the
-orchestrating session to run the wave, rather than lifting its identity into a shell and calling
-`spawn` there. `SKILL.md` withdrew that shortcut for the same reason.
+What survives as measured fact, and nothing more:
 
-**Never restart the daemon to force it.** A restart kills every in-flight implementer on the
-machine — including waves belonging to other runs, which this skill has no way to see or to ask.
-That makes it a human decision, and it belongs in `SKILL.md`'s "Surface, don't auto-do" list
-rather than in a recovery routine here.
+- The identity check is fast and correct — `identity_stale` comes back in under a second.
+- Everything after it hangs, from a shell and from inside a turn alike.
+- Every other endpoint answers throughout, including `session prompt`, which runs complete billed
+  turns.
+- The only spawns ever observed to succeed happened on 2026-09-05, within hours of the daemon
+  starting. Nothing has succeeded since, across two days and twelve attempts.
+
+**Stop trying to characterise it from the caller's side.** Four call shapes and two call sites have
+now been tried; each cost time and none moved it. Treat a hanging `spawn` as a daemon-level fault,
+make **two** attempts, and report.
+
+**Never restart the daemon yourself.** It is the only thing likely to clear this, and it kills
+every in-flight implementer on the machine — including waves belonging to other runs. That makes
+it a human decision, and it belongs in `SKILL.md`'s "Surface, don't auto-do" list rather than in a
+recovery routine here.
+
+**Make that decision cheap by enumerating what would die.** A human asked "should I restart?" with
+no list has to go and look; a human handed the list can answer in a second. Report both, because
+a worktree's flag can be stale while its session is long gone:
+
+```
+compozy session list      # any session in `running` or `prompting` is live work
+compozy worktree list     # a `running` worktree whose session is `done` is a stale flag
+```
+
+Say plainly whether the restart would interrupt anything, and let the human decide.
 
 ### When dispatch stalls but the daemon answers
 

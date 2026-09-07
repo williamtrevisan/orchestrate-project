@@ -633,6 +633,25 @@ class ReleaseHappensInTheTurnThatFlips(unittest.TestCase):
     def test_idle_with_items_left_is_not_an_ending(self):
         self.assertIn("is not an ending, it is a stall", self.text)
 
+    def test_the_falsified_inference_is_recorded_as_false(self):
+        """A turn was spent testing "call it from inside a turn" and it hung the
+        same way. Leaving the theory standing would buy that turn again."""
+        runner = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+        self.assertIn("tested and is false", runner)
+        self.assertIn("the discriminator", runner)
+
+    def test_the_restart_decision_comes_with_its_blast_radius(self):
+        """A human asked to restart with no list has to go and look."""
+        runner = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+        self.assertIn("enumerating what would die", runner)
+        self.assertIn("stale flag", runner)
+
     def test_the_hang_is_placed_after_the_identity_check(self):
         """A stale session id fails in under a second; a fresh unbound one passes
         the check and then hangs. Reading it as a wedged endpoint produced the
@@ -643,12 +662,3 @@ class ReleaseHappensInTheTurnThatFlips(unittest.TestCase):
         ))
         self.assertIn("identity_stale", runner)
         self.assertIn("inside an agent's own turn", runner)
-
-    def test_the_inference_is_marked_as_one(self):
-        """The mechanism is not proven, and saying so is what keeps the next run
-        from testing the wrong thing."""
-        runner = read(os.path.join(
-            paths.PLUGIN_DIR, "skills", "orchestrate-project",
-            "references", "runner.md",
-        ))
-        self.assertIn("inferred, not proven", runner)
