@@ -513,3 +513,76 @@ class ConcurrentRunsShareOneMachine(unittest.TestCase):
         ))
         self.assertIn("Identify the killer", workflow)
         self.assertIn("not to background it", workflow)
+
+
+class RateLimitIsNeitherDeathNorFinish(unittest.TestCase):
+    """The most common stop on a long run reads as completion.
+
+    Observed three times in one run: the provider refuses, the turn ends, and
+    the session goes idle — identical to having finished. A wave released on
+    that silence releases dependents against half-done work; a re-dispatch on
+    it pays for the same item twice.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_the_runner_names_the_machine_readable_signature(self):
+        self.assertIn("errorKind", self.runner)
+        self.assertIn("rate_limited", self.runner)
+
+    def test_the_runner_says_to_wait_rather_than_re_dispatch(self):
+        self.assertIn("Do not re-dispatch", self.runner)
+
+    def test_the_runner_warns_nothing_reopens_the_turn(self):
+        self.assertIn("Nothing reopens the turn on its own", self.runner)
+
+    def test_the_monitor_classifies_before_acting(self):
+        self.assertIn("three causes", self.monitor)
+
+    def test_the_monitor_forbids_inferring_the_cause_from_silence(self):
+        self.assertIn("Never infer the cause from elapsed silence", self.monitor)
+
+
+class UsageIsCapturedBeforeItDisappears(unittest.TestCase):
+    """A run totalled at the end can only measure what still exists.
+
+    `session usage` dies with the session; six of twelve were unmeasurable by
+    review time.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "monitor.md",
+        ))
+
+    def test_it_says_usage_dies_with_the_session(self):
+        self.assertIn("dies with the session", self.text)
+
+    def test_it_says_where_to_write_usage_down(self):
+        self.assertIn("meta.json", self.text)
+
+
+class CoordinationIsTheBiggestLineItem(unittest.TestCase):
+    """The orchestrator outspent every implementer combined.
+
+    Handing the next orchestrator the run's own state, rather than making it
+    re-derive history, cost 4.7% of deriving it.
+    """
+
+    def setUp(self):
+        self.text = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project", "SKILL.md",
+        ))
+
+    def test_it_carries_the_measured_comparison(self):
+        self.assertIn("Coordination outspends the work", self.text)
+
+    def test_it_tells_a_resume_to_state_what_is_already_true(self):
+        self.assertIn("On a resume, state what is already true", self.text)
+
+    def test_it_names_the_read_write_ratio_as_the_tell(self):
+        self.assertIn("200:1", self.text)

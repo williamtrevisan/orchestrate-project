@@ -344,6 +344,50 @@ so the pair looks like a substitute. **It is not a complete one:** `session new`
 the [standing workflow](standing-implementer-workflow.md) expects then fail as silently skipped
 steps. Reach for it only knowing that, and say so in the run report.
 
+### A provider session limit is not a failure, and not a finish
+
+The most common way a session stops on a long run is neither. The provider refuses, the turn ends,
+and the session goes idle — which from the outside is byte-for-byte what "finished its work" looks
+like. Observed three times in one run on 2026-09-06, twice on an orchestrator and once on an
+implementer:
+
+```
+{"code":-32603,
+ "message":"Internal error: You've hit your session limit · resets 7:50pm (America/Sao_Paulo)",
+ "data":{"errorKind":"rate_limit"}}; provider_failure_kind=rate_limited; next_action=retry
+```
+
+**Three things make it identifiable, and all three are in the last turn, not in the session state:**
+
+| Field | Value |
+| --- | --- |
+| `data.errorKind` | `rate_limit` |
+| `provider_failure_kind` | `rate_limited` |
+| `message` | carries the **reset time**, in the user's timezone |
+
+`session status` reports `idle`/`done`, and `session health` may report `healthy` — neither says
+why. **Read the last turn before concluding anything about a session that went quiet:**
+
+```
+compozy session history <session-id> -o json     # last turn's last block carries the refusal
+```
+
+**What to do.** The message names when the quota returns, so this is a wait, not a recovery:
+
+1. **Do not re-dispatch, and do not cut a new worktree.** The item is mid-flight; its worktree
+   holds the work. Re-dispatching pays for it twice and throws the first attempt away.
+2. **Do not treat it as done.** A wave released on a rate-limited session's silence releases
+   dependents against work that stopped halfway.
+3. **Wait for the stated reset, then re-prompt the same session** with what remains. If the session
+   died in the meantime, re-prompt a fresh one **into the same worktree** — the recovery in
+   [Phase 4](monitor.md).
+4. **Report the wait to the user with the reset time.** An orchestration that appears frozen for
+   six hours with no explanation reads as broken.
+
+**Nothing reopens the turn on its own.** Every one of those three interruptions needed a human or a
+driver session to re-prompt; the internal monitor did not, and neither did the daemon. Plan a long
+run knowing that a limit costs the wall-clock to the reset **plus** the round trip to notice it.
+
 ### A child is stopped with its parent unless you say otherwise
 
 `--auto-stop-on-parent` **defaults to `true`**, and the parent is the orchestrating session, not a
