@@ -290,6 +290,41 @@ from 2 events to 134 received the prompt, whatever the shell reported.
 idempotency conflict — printed to stdout and exited 0. Never filter runner output, and never read
 an exit status as the result.
 
+### A daemon serves a handful of children per boot, then blocks forever
+
+This is the operative limit, and it is measured rather than inferred. Across three daemon boots:
+
+| Boot | Children created | Everything after |
+| --- | --- | --- |
+| 1 | 2 | 11 attempts, all blocked |
+| 2 | 2 | 3 attempts, all blocked |
+| 3 | 3 | 6 attempts, all blocked |
+
+**`spawn` blocks rather than refusing.** At the limit it holds the connection until the client's
+deadline, so the failure arrives as `context deadline exceeded` — indistinguishable from a wedged
+endpoint, which is what three earlier readings of this page called it.
+
+**Once blocked, it stays blocked.** All of the following were tried on a blocked daemon and none
+restored it: waiting hours, letting every child reach TTL and report `stopped`, running nothing
+else on the machine, and **killing the children's leftover processes outright**. Only a restart
+works.
+
+Two observations that go with it, and do not explain it:
+
+- A session reports `stopped` while its `npm exec @agentclientprotocol/claude-agent-acp` tree keeps
+  running. Six such trees were found alive on one daemon, aged three to eight hours, every one a
+  child of the daemon with its session long stopped.
+- Reaping those trees changes nothing about the block, so whatever the daemon is counting is not
+  the OS process.
+
+**No mechanism is claimed here.** Four have been published and falsified — a wedged endpoint, the
+caller's call site, the daemon's age, and machine load. What follows is the operating rule that
+survives all four:
+
+> A daemon boot buys roughly **two dispatches**. Plan the wave around that, dispatch what the
+> window allows, and report the rest as needing a restart — which is a human's call
+> ([`SKILL.md`](../SKILL.md), "Surface, don't auto-do").
+
 ### `spawn` hangs after the identity check, wherever it is called from
 
 **`POST /api/agent/spawn` hangs while every other endpoint answers instantly**, so a run reads as
