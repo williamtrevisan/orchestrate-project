@@ -259,20 +259,27 @@ all: an implementer started that way runs until it stops or the daemon does, and
 ### When the spawn call never returns
 
 `spawn` can time out with the daemon otherwise healthy — [the runner](runner.md) records the
-wedge and the ten attempts that mapped it. Three rules, because each was learned by breaking one:
+eleven attempts that mapped it, and what they actually showed.
+
+**First, check where you are calling from.** Every one of those eleven was issued from a shell
+against a session that was not running a turn, and the only spawns ever seen to succeed came from
+inside an agent's own turn. If you are dispatching by lifting a session's identity into a shell,
+that is the likeliest cause and the fix is to stop doing it — prompt the session to run the wave
+instead.
+
+Then, if it hangs from inside a turn too, three rules, each learned by breaking it:
 
 - **A timeout is not a failure.** Check `session list` for a child named after the item before
-  doing anything else. This particular wedge creates nothing, but that is an observation, not a
-  guarantee, and a blind retry is how an item gets two implementers on one worktree.
+  doing anything else. These hangs created nothing, but that is an observation, not a guarantee,
+  and a blind retry is how an item gets two implementers on one worktree.
 - **Retry with a fresh `--idempotency-key`, and stop at two.** A key is single-use even when the
-  attempt it was bound to failed. Beyond a second try you are not retrying, you are polling a
-  broken endpoint — and the ten-attempt map cost an hour that produced no dispatch.
-- **Do not reshape the call hoping to slip past it.** Toggling `--no-notify-creator`, re-attaching
-  the parent, or prompting it into a live turn all changed nothing. The parent's state is not the
-  cause.
+  attempt it was bound to failed. Beyond a second try you are not retrying, you are polling — and
+  mapping this cost hours that produced no dispatch.
+- **Do not reshape the call hoping to slip past it.** Toggling `--no-notify-creator` and
+  re-attaching the parent both changed nothing. The flags are not the cause.
 
-Then report per `SKILL.md`'s "Surface, don't auto-do": name the wedge, the attempts and what the
-wave was going to dispatch, and stop. **Never restart the daemon to clear it** — it kills every
+Then report per `SKILL.md`'s "Surface, don't auto-do": name the failure, the attempts and what the
+wave was going to dispatch, and stop. **Never restart the daemon to force it** — it kills every
 in-flight implementer on the machine, including other runs' work.
 
 A wave that cannot dispatch is not a wave that failed. Items already dispatched keep running,

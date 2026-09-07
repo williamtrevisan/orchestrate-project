@@ -430,9 +430,11 @@ class CitedPathsMustExistInAWorktree(unittest.TestCase):
 
 
 class DispatchFailureIsReportedNotWorkedAround(unittest.TestCase):
-    """`POST /api/agent/spawn` wedged for a whole run while every other daemon
-    endpoint answered instantly. Ten attempts across four parent-session states
-    produced no dispatch and no child.
+    """`POST /api/agent/spawn` hung for a whole run while every other daemon
+    endpoint answered instantly. Eleven attempts across four parent-session
+    states produced no dispatch and no child -- every one issued from a shell
+    rather than from inside an agent turn, which is what the first reading of it
+    missed.
 
     Three things went wrong around it, and each is asserted here: the wedge was
     not documented, so it was mapped by brute force; the only fix is a daemon
@@ -630,3 +632,23 @@ class ReleaseHappensInTheTurnThatFlips(unittest.TestCase):
 
     def test_idle_with_items_left_is_not_an_ending(self):
         self.assertIn("is not an ending, it is a stall", self.text)
+
+    def test_the_hang_is_placed_after_the_identity_check(self):
+        """A stale session id fails in under a second; a fresh unbound one passes
+        the check and then hangs. Reading it as a wedged endpoint produced the
+        wrong remedy -- waiting it out instead of dispatching from a turn."""
+        runner = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+        self.assertIn("identity_stale", runner)
+        self.assertIn("inside an agent's own turn", runner)
+
+    def test_the_inference_is_marked_as_one(self):
+        """The mechanism is not proven, and saying so is what keeps the next run
+        from testing the wrong thing."""
+        runner = read(os.path.join(
+            paths.PLUGIN_DIR, "skills", "orchestrate-project",
+            "references", "runner.md",
+        ))
+        self.assertIn("inferred, not proven", runner)

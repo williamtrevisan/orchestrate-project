@@ -290,14 +290,15 @@ from 2 events to 134 received the prompt, whatever the shell reported.
 idempotency conflict — printed to stdout and exited 0. Never filter runner output, and never read
 an exit status as the result.
 
-### The spawn handler wedges on its own, and only a restart clears it
+### `spawn` hangs from an outside shell, and the hang is after the identity check
 
-The `GET /api/workspaces/{id}` wedge below has a sibling that is worse, because the endpoint it
-takes down is the only one this skill cannot work around. **`POST /api/agent/spawn` hangs while
-every other endpoint answers instantly**, so the run reads as healthy until it tries to dispatch,
-and then cannot.
+**`POST /api/agent/spawn` hangs while every other endpoint answers instantly**, so a run reads as
+healthy right up to the moment it dispatches, and then cannot. It looks exactly like the
+`GET /api/workspaces/{id}` wedge below — and the first reading of it was that, which is why the
+remedy came out wrong. It is not the same thing, and the difference decides what to do.
 
-Measured 2026-09-06 across **ten attempts and four configurations**:
+Measured 2026-09-06 across **eleven attempts and four configurations**, every one of them issued
+from a shell rather than from inside an agent turn:
 
 | Parent session state | Result |
 | --- | --- |
@@ -308,16 +309,38 @@ Measured 2026-09-06 across **ten attempts and four configurations**:
 
 Throughout, from the same shell and the same second: `session list`, `workspace info`,
 `worktree status` and `session prompt` all answered — `session prompt` ran a complete billed turn.
-**None of the ten created a child**, so the failure is at least clean: check `session list` for a
+**None of the eleven created a child**, so the failure is at least clean: check `session list` for a
 child named after the item before concluding anything, but expect nothing there.
 
-Do not read the parent's state as the cause. It is not, and treating it as one costs another five
-attempts.
+**The identity check is not what hangs.** A *stale* session id — one whose runtime is gone —
+comes back in under a second:
 
-**Never restart the daemon to clear it.** A restart does clear the wedge, and it also kills every
-in-flight implementer on the machine — including waves belonging to other runs, which this skill
-has no way to see or to ask. That makes it a human decision, and it belongs in `SKILL.md`'s
-"Surface, don't auto-do" list rather than in a recovery routine here.
+```
+identity_stale — agent session identity is not active
+action: start or resume the CompozyOS session, then retry
+```
+
+A *freshly created, never-prompted* session id passes that check and then hangs. So the block is
+after identity resolution, and the plausible reading is that the daemon waits for the parent's
+runtime to acknowledge the child — a runtime a session only has while it is running a turn.
+
+Two facts fit that and nothing else does: **every one of the eleven hangs was issued from an
+outside shell against a session that was not mid-turn**, and **the only spawns ever observed to
+succeed came from inside an agent's own turn** — the first orchestrator of the run dispatched two
+implementers that way, in the same session, minutes before it ended.
+
+The mechanism is inferred, not proven — the one attempt made while a parent's turn was genuinely
+running is ambiguous, because `session health` reported that session `detached` at the same
+moment. Treat the inference as the working theory and the two facts as the guidance.
+
+**So the remedy is not to wait the endpoint out.** Dispatch from inside a turn: prompt the
+orchestrating session to run the wave, rather than lifting its identity into a shell and calling
+`spawn` there. `SKILL.md` withdrew that shortcut for the same reason.
+
+**Never restart the daemon to force it.** A restart kills every in-flight implementer on the
+machine — including waves belonging to other runs, which this skill has no way to see or to ask.
+That makes it a human decision, and it belongs in `SKILL.md`'s "Surface, don't auto-do" list
+rather than in a recovery routine here.
 
 ### When dispatch stalls but the daemon answers
 
