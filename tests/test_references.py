@@ -662,3 +662,39 @@ class ReleaseHappensInTheTurnThatFlips(unittest.TestCase):
         ))
         self.assertIn("identity_stale", runner)
         self.assertIn("inside an agent's own turn", runner)
+
+
+class DaemonLifecycleIsDocumentedWhereItLies(unittest.TestCase):
+    """Twelve spawn failures over two days were a degraded daemon process, and a
+    restart fixed it in seconds. Every command the restart needs misreported
+    something, so "ask a human to restart" was not actionable on its own.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+
+    def test_daemon_age_is_the_leading_suspect(self):
+        self.assertIn("daemon.lock", self.runner)
+        self.assertIn("leading suspect", self.runner)
+
+    def test_the_lying_stop_command_is_recorded(self):
+        """`daemon stop` reported "not running" while the process held the socket."""
+        self.assertIn("daemon is not running", self.runner)
+        self.assertIn("/proc/<pid>", self.runner)
+
+    def test_the_self_killing_start_is_recorded(self):
+        """`daemon start` terminates the daemon it just booted when session repair
+        outlives its readiness wait."""
+        self.assertIn("received shutdown signal", self.runner)
+        self.assertIn("setsid nohup", self.runner)
+
+    def test_a_forced_kill_costs_recovery_time(self):
+        self.assertIn("unapplied WAL", self.runner)
+
+    def test_an_unprompted_child_is_named_as_the_trap(self):
+        """A spawned child sits idle with zero events until it is prompted, which
+        looks exactly like one that died."""
+        self.assertIn("does not start it", self.spawn)
+        self.assertIn("active_prompt: false", self.spawn)

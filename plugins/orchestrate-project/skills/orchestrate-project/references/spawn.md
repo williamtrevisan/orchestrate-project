@@ -294,6 +294,20 @@ runner: sessions_for(worktree_id)   → state, health
 - **Liveness is a reported state.** `starting`, `active`, `stopping`, `stopped` come from the
   runtime. Do not count terminals, do not grep a transcript, and do not treat process existence as
   progress.
+- **A created child is not a started one, and `--prompt-overlay` does not start it.** The overlay
+  is an overlay; what begins work is a `session prompt`. Observed 2026-09-07: a spawn returned a
+  healthy, attachable child that then sat at `state: idle`, `active_prompt: false`, with **zero
+  events** — indistinguishable from an implementer that died in its first minute, and from a wave
+  that is quietly doing nothing. Prompt it, then re-check:
+
+  ```
+  compozy session prompt <child-id> "<the opening instruction>" --provider … --model … -o json
+  compozy session health <child-id>     # -> State: prompting, Active Prompt: true
+  ```
+
+  `session prompt` resolves its workspace from the current directory, so run it **from inside that
+  child's worktree**. This step is why it is a step: the item was dispatched, the tracker said so,
+  and nothing was running.
 - **The worktree is bootstrapped** — poll for `project.bootstrap_marker` from configuration. Where
   no marker is configured, treat the worktree as ready on creation and say so, rather than
   inventing a filename to wait for. Bootstrap is asynchronous: the worktree appears before
