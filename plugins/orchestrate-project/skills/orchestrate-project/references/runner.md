@@ -347,17 +347,33 @@ What survives as measured fact, and nothing more:
 tried; each cost time and none moved it. Treat a hanging `spawn` as a daemon-level fault, make
 **two** attempts, and report.
 
-**Suspect the daemon's age first, and put it in the report.** Restarting resolved this instantly —
-a probe spawn returned a child in seconds after twelve failures across two days. The process had
-been up 16 hours and was answering every read while no longer able to create children. It was a
-degraded process the whole time, and every theory about endpoints, flags and call sites was chasing
-a symptom.
+**Restarting the daemon does clear it — and it comes back.** A restart resolved twelve failures
+instantly: a probe spawn returned a child in seconds. **One hour later the same daemon was failing
+again**, so age is not the discriminator, and an earlier revision of this page that named it the
+leading suspect was wrong within the hour.
+
+What the timeline actually shows:
+
+| Machine state | `spawn` |
+| --- | --- |
+| Freshly restarted, nothing running | works |
+| ~1h in, one implementer running | times out, and `session list` times out with it |
+
+`workspace list` kept answering throughout, both times. Two days earlier the only successful spawns
+were likewise the first ones, before the implementers they created were doing anything.
+
+**The correlate is an active agent session, not elapsed time — and that is an observation, not a
+mechanism.** The test that would settle it is cheap and has not been run: probe `spawn` once the
+running implementer finishes, on the same daemon. Until someone does that, report what is
+measurable —
 
 ```
-P=$(cat ~/.compozy/daemon.lock); ps -o etime= -p "$P"
+P=$(cat ~/.compozy/daemon.lock); ps -o etime= -p "$P"    # age
+compozy session list                                     # what is running (may itself time out)
 ```
 
-An old daemon that reads fine and cannot spawn is the leading suspect, not the last one.
+— and say plainly that a restart buys a working dispatch window rather than a fix. **Dispatch the
+whole wave inside that window**, because the second item may not get one.
 
 **Never restart the daemon yourself.** It is the only thing likely to clear this, and it kills
 every in-flight implementer on the machine — including waves belonging to other runs. That makes

@@ -675,9 +675,18 @@ class DaemonLifecycleIsDocumentedWhereItLies(unittest.TestCase):
         self.runner = read(os.path.join(base, "references", "runner.md"))
         self.spawn = read(os.path.join(base, "references", "spawn.md"))
 
-    def test_daemon_age_is_the_leading_suspect(self):
+    def test_the_age_claim_is_withdrawn_with_its_counter_evidence(self):
+        """A restart fixed twelve failures and the same daemon failed again an
+        hour later, so age was falsified faster than it was published."""
         self.assertIn("daemon.lock", self.runner)
-        self.assertIn("leading suspect", self.runner)
+        self.assertIn("age is not the discriminator", self.runner)
+        self.assertIn("was wrong within the hour", self.runner)
+
+    def test_the_restart_is_framed_as_a_window(self):
+        """A restart buys a working dispatch window, not a fix; the wave goes out
+        inside it."""
+        self.assertIn("rather than a fix", self.runner)
+        self.assertIn("inside that window", self.runner)
 
     def test_the_lying_stop_command_is_recorded(self):
         """`daemon stop` reported "not running" while the process held the socket."""
