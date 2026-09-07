@@ -66,6 +66,36 @@ A high tier is the expensive default nobody notices choosing. Measured on the fi
 **four verification passes cost ~384k tokens** (85.5k, 103.6k, 104.8k, 90.4k), and a high-tier
 implementer hit its session limit mid-item and had to be resumed. Neither was budgeted.
 
+### Coordination outspends the work, and it does not have to
+
+Measured on a ten-item run, 2026-09-06, via `compozy session usage`:
+
+| Session | Role | Tokens | Cost |
+| --- | --- | --- | --- |
+| Orchestrator #1 | Phases 0–5, derived everything itself | 21.3M | **$70.82** |
+| Orchestrator #2 | Same phases, **handed the state** | 3.3M | **$3.32** |
+| Implementer, largest item | 10 acceptance criteria, new component | 42.2M | $21.85 |
+| Implementer, median of four measured | | ~15M | ~$5 |
+
+**The orchestrator was the single most expensive participant** — more than every measured
+implementer combined. And the second one did comparable coordination for **4.7% of the first**: it
+re-read the tracker graph live, as the contract requires, but it was handed the PR numbers, their
+bases, what had shipped and what remained, instead of re-deriving all of it by reading every item
+and re-planning the stack.
+
+That is the largest single lever in this skill, and it is free:
+
+- **On a resume, state what is already true.** The open PRs and their bases, the items done, the
+  item in flight and where its worktree is. The contract's "re-read the graph live" is about the
+  *dependency graph*, not about rediscovering a run's own history.
+- **Reaching Phase 3 with a nearly full window means the wave starts and immediately dies**
+  (see the cold-start section). Dispatch what is eligible *first*, report afterwards.
+- **A read/write ratio near 200:1 is the tell.** Orchestrator #1 produced 94k output tokens from
+  21.3M total — almost everything it spent was re-reading context it already had.
+
+**Item cost tracks ticket size, so plan with it.** The 10-AC item cost 4× the median. When one item
+dwarfs the others, that is the one to split, not the one to give a bigger model.
+
 ### Cheap checks first — escalate only on a signal
 
 Most defects found on that run were mechanically detectable. Run these **in the orchestrating

@@ -78,6 +78,35 @@ self-heal — an in-flight run replaced by a newer one. Do not escalate.
 
 Only an **unsuperseded** `FAILURE`/`ERROR` — no newer commit, no fresh run — goes to triage.
 
+## 3.4 A session that went quiet has three causes, and they need opposite responses
+
+`idle`/`done` is the same state for all three, so the state never tells them apart. Classify before
+acting — the wrong response to each of these is expensive in a different way:
+
+| Cause | How to tell | Response |
+| --- | --- | --- |
+| **Finished** | A commit, a pushed branch, a PR | Proceed to the gate and the ready flip |
+| **Rate-limited** | Last turn carries `errorKind: rate_limit` and a reset time ([runner](runner.md)) | **Wait for the reset, then re-prompt the same session.** Not a re-dispatch |
+| **Dead** | `session health` reports `health: dead`, or the session is gone from `session list` | Read the worktree (§3.5), then re-dispatch **into it** |
+
+```
+compozy session history <id> -o json    # the refusal, if there was one
+compozy session health  <id>            # dead vs alive
+git -C <worktree> status --short        # what the work got to
+```
+
+**Never infer the cause from elapsed silence.** A rate-limited session and a finished one are both
+quiet, and a stall timer fires identically on both — so a timer alone will either re-dispatch work
+that was only paused, or release a wave against work that stopped halfway. The classification costs
+two commands; guessing costs an item.
+
+**Capture usage before a session can disappear.** `compozy session usage <id>` is the only source
+of a session's tokens and cost, and **it dies with the session** — a removed session returns
+nothing, so a run totalled at the end can only measure whatever happens to still exist. Observed
+2026-09-06: six of twelve sessions were unmeasurable by the time the run was reviewed. Write each
+item's usage into its `.orch/<REF>/meta.json` at the moment that item reaches review-ready, not at
+the end of the run.
+
 ## 3.5 A dead implementer is not a lost item — read its worktree
 
 An implementer can stop without failing: a killed session, an expired TTL, a parent that ended its
