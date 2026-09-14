@@ -868,3 +868,52 @@ class SteersLandLateAndFencesNameAnOwner(unittest.TestCase):
         self.assertIn("sequence them instead of fencing", self.monitor)
         self.assertIn("Ownership fences, by owner", self.spawn)
         self.assertIn("reported to that owner, never fixed here", self.workflow)
+
+
+class VerificationReadsWhatItMeasured(unittest.TestCase):
+    """A scoped run stayed green after a follow-up commit widened the diff into
+    shared code; a briefing cited numbers from an API that ignored its page
+    parameter; background verification runs were reaped and reported nothing.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.advance = read(os.path.join(base, "references", "advance.md"))
+
+    def test_scope_growth_is_a_cheap_check(self):
+        self.assertIn("**Scope has not grown**", self.skill)
+
+    def test_blast_radius_is_per_head(self):
+        self.assertIn("Blast radius belongs to the verified head", self.skill)
+        self.assertIn("per verified head, not per item", self.monitor)
+
+    def test_the_instrument_is_validated(self):
+        self.assertIn("Validate the instrument before citing a reading", self.monitor)
+
+    def test_a_reaped_gate_is_not_green(self):
+        self.assertIn("A killed or memory-reaped gate is not a green gate", self.monitor)
+        self.assertIn("create → use → remove", self.monitor)
+
+    def test_red_gates_are_controlled_against_main(self):
+        self.assertIn("Compare the failing-test\nlists", self.monitor)
+
+    def test_mutation_sensors_count_replacements(self):
+        self.assertIn("abort on zero", self.monitor)
+
+    def test_green_making_test_commits_are_read(self):
+        self.assertIn("read for weakening", self.monitor)
+
+    def test_visual_references_are_never_regenerated_to_pass(self):
+        self.assertIn("Never regenerate a\nreference just to turn a gate green", self.monitor)
+
+    def test_the_user_facing_path_is_checked(self):
+        self.assertIn("Green tests can still ship the wrong behaviour", self.monitor)
+
+    def test_the_draft_flag_is_the_brake(self):
+        self.assertIn("gh pr ready <pr> --undo", self.advance)
+
+    def test_ci_red_starts_with_the_annotation(self):
+        self.assertIn("Read the check annotation", self.monitor)
+        self.assertIn("multi-minute duration", self.monitor)

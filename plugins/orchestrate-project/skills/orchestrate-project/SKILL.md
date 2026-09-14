@@ -108,6 +108,7 @@ session, for the cost of a few greps**, before spending anything:
 | The deliverable exists and is the right shape | `--name-only`, line count |
 | **Provenance** — every "counted by X" / "per X" claim | grep the cited document for the claim's subject. Two items shipped a fabricated citation; both were one grep away |
 | **Citation reachability** — cited lines are live code | open 3–5 cited lines; for PHP, check the statement is not commented out. A cited line can be exactly right and still be dead code |
+| **Scope has not grown** since the last verified pass | `git diff --name-only origin/main...<head>` against the list you last verified. Any new file outside it means re-scope before re-running ([Phase 4](references/monitor.md)) |
 
 **Escalate to a high-tier verification agent only when one fires, or when the item's blast radius
 earns it.** These checks caught, in hindsight, the two most damaging real defects of the run.
@@ -119,6 +120,11 @@ earns it.** These checks caught, in hindsight, the two most damaging real defect
 | Leaf — nothing depends on it | Cheap checks only. **No agent.** |
 | One dependent | Cheap checks + a targeted pass on the two or three ACs most likely to be wrong |
 | Two or more dependents, or an artifact consumed as fact | One deep pass |
+
+**Blast radius belongs to the verified head, not to the item** — a later commit moves it, so it is
+re-derived on every pass. [Phase 4](references/monitor.md) carries that and the rest of the
+verification discipline: validate the instrument, never read a killed gate as green, and control
+every red gate against `main`.
 
 ### A re-verification verifies the diff, never the artifact again
 

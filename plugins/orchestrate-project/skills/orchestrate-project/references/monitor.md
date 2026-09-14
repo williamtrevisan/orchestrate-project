@@ -163,9 +163,14 @@ two-line change.
 
 ## 3.6 CI that never started is not the item's failure
 
-A red check whose job never ran says nothing about the code. The signature is a job that fails in
-seconds with **no steps at all**, every downstream job `skipping`, and the reason living only in
-the check-run annotation rather than in any log:
+A red check whose job never ran says nothing about the code. **Read the check annotation before
+treating any red CI as a code failure.** The signature is a job with **no steps at all**, every
+downstream job `skipping`, and the reason living only in the check-run annotation rather than in any
+log.
+
+**It does not always fail fast.** A job the platform never allocates a runner to can sit waiting and
+still report a multi-minute duration before it goes red — with no logs and an empty `steps` array.
+A duration is not evidence that anything ran; the steps array is.
 
 ```
 gh run view <run-id> --log-failed          # -> "log not found"
@@ -305,6 +310,63 @@ greps and, on the first real run, would have caught the two most damaging defect
 
 Escalate only on a signal from those, or when the item's blast radius earns it. A leaf item gets no
 agent at all. A revision gets a diff-scoped pass, never a re-run of the original.
+
+## 7.6 Verification discipline — each rule is a green reading that was wrong
+
+**Re-derive the blast radius per verified head, not per item.** Before every verification pass:
+
+```
+git fetch origin <head-branch>
+git diff --name-only origin/main...origin/<head-branch>
+```
+
+Let **that** list choose the test scope — never the scope of the previous pass. On a stack it
+includes the parents' files, which is correct: that is what lands. Observed: a pull request touching
+three files was verified against those three files' tests; a follow-up commit then widened it into
+an API resource other endpoints share and a screen that renders it. The scoped run still passed,
+because it covered the old radius, and the widening was caught only by noticing the diff stat had
+grown. **A commit made in response to a design steer is the one most likely to widen it** — the
+implementer is now touching code it had no reason to touch before.
+
+**Validate the instrument before citing a reading.** Vary one input and confirm the output changes.
+A number that does not move when its parameter moves is not a measurement. Observed: an API that
+silently ignored its pagination parameter returned the same window for every page, so a total and a
+"the listing never reaches X" finding were both artifacts of the instrument — briefed to an
+implementer as fact, and retracted mid-run while it was already working from them.
+
+**A killed or memory-reaped gate is not a green gate.** A harness can reap a backgrounded command
+and report nothing, which reads as a pass ([the standing
+workflow](standing-implementer-workflow.md)). Leftover scratch worktrees are a common cause. Observed:
+nine forgotten verification worktrees (2.4 GB) alongside three running implementers got three
+background verification runs reaped; removing them brought that to 79 MB. **Give every verification
+worktree a create → use → remove lifecycle inside the same step**, gate in the foreground, output to
+a file (§1.5), and the removal in that same step whatever the gate reported.
+
+**Control every red gate against `main`.** Run the same spec on `main` before attributing a failure
+to the branch. Only a failure `main` does not share belongs to the branch. **Compare the failing-test
+lists, never the colour or the exit code** — a gate already red on `main` stays red when the branch
+adds a new failure, and the exit status cannot tell you it did.
+
+**A mutation sensor must prove its mutation landed.** When mutating code to prove a test catches a
+defect: assert the target text appears **exactly once** before mutating, **count the replacements**
+after, **abort on zero**, and have the sensor fail when the suite still passes. A mutation that
+matched nothing leaves the code untouched, so whatever the suite then reports is about the original
+code — and it reads as a result.
+
+**A test-only commit that turns a red test green is read for weakening.** Open it
+(`git show <sha> -- <test paths>`). Adapting navigation or setup to an intended behaviour change is
+legitimate; changing **what is asserted** is not, however the commit message frames it.
+
+**Visual gates catch what behavioural tests cannot.** A list that scrolls one row too early still
+lets a test reach every row. When a pixel or screenshot gate goes red after an intended UI change,
+**open the diff image** and decide: a legitimate render change → regenerate the reference from the
+design source, and say so in the pull request; a layout break → fix the layout. **Never regenerate a
+reference just to turn a gate green.**
+
+**Green tests can still ship the wrong behaviour.** A fix can pass every test while removing the
+capability the feature exists for, because the tests assert that the new behaviour is implemented,
+not that it is the behaviour users need. Before reporting a behavioural fix verified, check the
+user-facing path itself.
 
 ## 8. Review-ready
 
