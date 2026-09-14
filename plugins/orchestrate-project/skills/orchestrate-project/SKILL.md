@@ -88,6 +88,10 @@ That is the largest single lever in this skill, and it is free:
 - **On a resume, state what is already true.** The open PRs and their bases, the items done, the
   item in flight and where its worktree is. The contract's "re-read the graph live" is about the
   *dependency graph*, not about rediscovering a run's own history.
+- **Keep that state in one file the orchestrator owns, and read it first.** `.orch/RUN-STATE.md`,
+  rewritten after every state change and read before anything else after a compaction or a resume
+  ([Phase 4](references/monitor.md) §1.6 has its shape). **Compact at boundaries** — after a PR is
+  verified, after a wave is dispatched — not when the window fills.
 - **Reaching Phase 3 with a nearly full window means the wave starts and immediately dies**
   (see the cold-start section). Dispatch what is eligible *first*, report afterwards.
 - **A read/write ratio near 200:1 is the tell.** Orchestrator #1 produced 94k output tokens from

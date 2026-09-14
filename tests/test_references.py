@@ -917,3 +917,33 @@ class VerificationReadsWhatItMeasured(unittest.TestCase):
     def test_ci_red_starts_with_the_annotation(self):
         self.assertIn("Read the check annotation", self.monitor)
         self.assertIn("multi-minute duration", self.monitor)
+
+
+class TheRunKeepsItsOwnState(unittest.TestCase):
+    """Facts the orchestrator had already found -- an API address, the working
+    dispatch flags -- cost about six round trips each to rediscover, because
+    nothing it could re-read held them.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_the_run_state_file_is_named_in_both_places(self):
+        self.assertIn(".orch/RUN-STATE.md", self.skill)
+        self.assertIn(".orch/RUN-STATE.md", self.monitor)
+
+    def test_it_is_read_first_and_never_replaces_the_graph(self):
+        self.assertIn("read this file before anything else", self.monitor)
+        self.assertIn("it\nnever replaces the graph", self.monitor)
+
+    def test_compaction_happens_at_boundaries(self):
+        self.assertIn("Compact at boundaries", self.skill)
+
+    def test_it_never_holds_a_credential(self):
+        self.assertIn("never a credential", self.monitor)
+
+    def test_polls_and_secondary_measurements_are_bounded(self):
+        self.assertIn("Prefer single-shot checks to long background polls", self.monitor)
+        self.assertIn("Bound the attempts on a secondary measurement", self.monitor)

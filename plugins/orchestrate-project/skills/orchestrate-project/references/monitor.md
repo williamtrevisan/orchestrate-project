@@ -57,6 +57,45 @@ grep -E '<what you need>' /tmp/out.txt
 Filter for what you need — a count, a status field, `--name-only` — and never filter away the error
 channel. When the filtered view does not explain the result, read the file.
 
+## 1.6 The run's own state lives in one file
+
+The most expensive thing an orchestrator does is re-derive what it already knew
+([`SKILL.md`](../SKILL.md), cost discipline). The remedy is a file the orchestrator owns and nobody
+else writes: `.orch/RUN-STATE.md`, beside the per-item `meta.json` records.
+
+**Rewrite it after every state change** — a dispatch, a draft opening, a ready flip, a hold, a
+verification verdict. One row per item:
+
+| Item | PR | Base | Session | Worktree | Status | What remains |
+| --- | --- | --- | --- | --- | --- | --- |
+
+Below the table, the **environment facts that cost round trips to rediscover**: the dispatch line
+that actually worked, how each external surface is reached, which gates cannot run on this machine,
+and what is already known red on `main`. Record *how* to reach something, never a credential — this
+file is read by every later session.
+
+Observed: recovering one API base address and the working spawn flags took about six round trips
+each, because neither was written anywhere the orchestrator could re-read.
+
+**After a compaction or a resume, read this file before anything else**, then re-read the dependency
+graph live as the contract requires. The file replaces re-reading every item body and every PR; it
+never replaces the graph.
+
+**Compact at natural boundaries** — after each PR is verified, after each wave is dispatched — with
+the file just rewritten. Compacting when the window happens to fill lands mid-dispatch, which is the
+cold-start failure in `SKILL.md` seen from the other side.
+
+**Prefer single-shot checks to long background polls.** A backgrounded poll loop is exactly what a
+harness reaps under memory pressure, and a reaped poll reports nothing. The run's one persistent
+monitor (§1) stays, and must emit when it cannot read; everything else — waiting on a gate, a CI
+run, an implementer — is one check at the moment a decision needs it. At each turn, confirm the
+monitor itself is still alive.
+
+**Bound the attempts on a secondary measurement.** A number that does not gate a decision — a
+timing, a size, a nice-to-have comparison — gets a small, stated number of attempts. When they fail,
+say so, record why in this file, and move on. A number nothing waits on is not worth unbounded
+retries, and a report that says "not measured, and why" is still an honest report.
+
 ## 2. Two independent dedup keys
 
 So CI state and review state are never conflated:
