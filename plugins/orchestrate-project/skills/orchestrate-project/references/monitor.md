@@ -35,6 +35,67 @@ looks like. Observed 2026-09-06: a monitor stayed silent through a full daemon o
 "still going." Emit an explicit `runner unreachable` line, and keep emitting the git-side counts
 beside it, so silence never has two meanings.
 
+## 1.5 A filter hides the error you need
+
+Keeping raw output out of the window is right (see the run-state section below), and every way of
+doing it carelessly has hidden a failure:
+
+| Filter | What it hides |
+| --- | --- |
+| `cmd \| tail -N` | The error printed above the last N lines — usually the first, causal one |
+| `cmd >/dev/null 2>&1` | The diagnostic, entirely. Only the exit status survives, and several tools here exit 0 on failure ([the runner](runner.md)) |
+| `cmd \| head; echo $?` | `$?` is **`head`'s** status, not `cmd`'s. After a pipe it is always the last command's |
+| `cmd \| grep x \| head \|\| echo fallback` | The fallback fires on `grep` finding nothing, never on `cmd` failing; a crashed `cmd` and an absent match look the same |
+
+**Write the output to a file and capture the status unpiped**, then filter the file:
+
+```
+cmd > /tmp/out.txt 2>&1; echo "exit=$?"
+grep -E '<what you need>' /tmp/out.txt
+```
+
+Filter for what you need — a count, a status field, `--name-only` — and never filter away the error
+channel. When the filtered view does not explain the result, read the file.
+
+## 1.6 The run's own state lives in one file
+
+The most expensive thing an orchestrator does is re-derive what it already knew
+([`SKILL.md`](../SKILL.md), cost discipline). The remedy is a file the orchestrator owns and nobody
+else writes: `.orch/RUN-STATE.md`, beside the per-item `meta.json` records.
+
+**Rewrite it after every state change** — a dispatch, a draft opening, a ready flip, a hold, a
+verification verdict. One row per item:
+
+| Item | PR | Base | Session | Worktree | Status | What remains |
+| --- | --- | --- | --- | --- | --- | --- |
+
+Below the table, the **environment facts that cost round trips to rediscover**: the dispatch line
+that actually worked, how each external surface is reached, which gates cannot run on this machine,
+and what is already known red on `main`. Record *how* to reach something, never a credential — this
+file is read by every later session.
+
+Observed: recovering one API base address and the working spawn flags took about six round trips
+each, because neither was written anywhere the orchestrator could re-read.
+
+**After a compaction or a resume, read this file before anything else**, then re-read the dependency
+graph live as the contract requires. The file replaces re-reading every item body and every PR; it
+never replaces the graph.
+
+**Compact at natural boundaries** — after each PR is verified, after each wave is dispatched — with
+the file just rewritten. Compacting when the window happens to fill lands mid-dispatch, which is the
+cold-start failure in `SKILL.md` seen from the other side.
+
+**Prefer single-shot checks to long background polls.** A backgrounded poll loop is exactly what a
+harness reaps under memory pressure, and a reaped poll reports nothing. The run's one persistent
+monitor (§1) stays, and must emit when it cannot read; everything else — waiting on a gate, a CI
+run, an implementer — is one check at the moment a decision needs it. At each turn, confirm the
+monitor itself is still alive.
+
+**Bound the attempts on a secondary measurement.** A number that does not gate a decision — a
+timing, a size, a nice-to-have comparison — gets a small, stated number of attempts. When they fail,
+say so, record why in this file, and move on. A number nothing waits on is not worth unbounded
+retries, and a report that says "not measured, and why" is still an honest report.
+
 ## 2. Two independent dedup keys
 
 So CI state and review state are never conflated:
@@ -141,9 +202,14 @@ two-line change.
 
 ## 3.6 CI that never started is not the item's failure
 
-A red check whose job never ran says nothing about the code. The signature is a job that fails in
-seconds with **no steps at all**, every downstream job `skipping`, and the reason living only in
-the check-run annotation rather than in any log:
+A red check whose job never ran says nothing about the code. **Read the check annotation before
+treating any red CI as a code failure.** The signature is a job with **no steps at all**, every
+downstream job `skipping`, and the reason living only in the check-run annotation rather than in any
+log.
+
+**It does not always fail fast.** A job the platform never allocates a runner to can sit waiting and
+still report a multi-minute duration before it goes red — with no logs and an empty `steps` array.
+A duration is not evidence that anything ran; the steps array is.
 
 ```
 gh run view <run-id> --log-failed          # -> "log not found"
@@ -184,6 +250,43 @@ evidence in a PR body is written by the implementer being checked:
 - **Nothing about the gate itself loosens** — no weakened assertion, no skipped test, no entry
   added to the baseline to make it pass.
 - **The merge boundary does not move.** It never does.
+
+## 3.8 Steering a running implementer
+
+A steer is weaker than it looks, and every rule below comes from one that failed.
+
+**It lands after the turn, not now.** `session prompt --queue` delivers when the current turn ends
+([the runner](runner.md)); there is no reachable interrupt. So when judging an implementer's output,
+**check its queue first** — a non-empty `session input list` means it is still working from the
+direction it had before your correction, and what it produces meanwhile is not a response to you.
+
+**Prune before you add.** Cancel queued steers that no longer apply
+(`session input cancel <session> <entry>`) before queueing a new one. Stale steers bury the current
+one, cause redundant work when they finally land, and have been observed to **all remain
+undelivered** while the implementer finished the item on its own — so a steer you queued is not a
+steer it read.
+
+**Restate the whole finish line in every steer.** A steer can end the implementer's turn: it answers
+the narrow correction, reports done, and stops. A message that says only "also fix X" gets X and
+nothing after it. Each steer names what remains in full — the gate, the push, the draft update, the
+ready flip where it applies.
+
+**Fence by owner, not by path.** When another item owns files this implementer might reach, the
+prompt ([Phase 3](spawn.md)) and any later steer name **the branch or pull request that owns them**,
+and tell the implementer to report what it finds there rather than fix it. A path list reads as a
+style rule: observed twice on one run, an implementer fenced off three backend paths found a real
+bug in them and committed two fixes on its own branch — into the files a second implementer was
+fixing on another. It had no way to tell "someone else owns this" from "nobody does".
+
+**When two items can touch the same files, sequence them instead of fencing.** The fence's only
+enforcement is a queued message, which is weaker than the drift it is meant to stop. Put the two on
+one chain ([Phase 1](compute-waves.md)) so the second is cut from the first's branch.
+
+**A claim you retract must be retracted where it travelled.** A briefing, a steer and a pull-request
+body all carry the orchestrator's claims forward. When one proves wrong, correct it in every place it
+reached, explicitly ([D-12](decisions.md)). If an implementer's pull-request body still carries it
+and the steer cannot reach the implementer in time, **edit the body yourself and say in the pull
+request that you did**.
 
 ## 4. Genuine CI failure
 
@@ -246,6 +349,69 @@ greps and, on the first real run, would have caught the two most damaging defect
 
 Escalate only on a signal from those, or when the item's blast radius earns it. A leaf item gets no
 agent at all. A revision gets a diff-scoped pass, never a re-run of the original.
+
+## 7.6 Verification discipline — each rule is a green reading that was wrong
+
+**Re-derive the blast radius per verified head, not per item.** Before every verification pass:
+
+```
+git fetch origin <head-branch>
+git diff --name-only origin/main...origin/<head-branch>
+```
+
+Let **that** list choose the test scope — never the scope of the previous pass. On a stack it
+includes the parents' files, which is correct: that is what lands. Observed: a pull request touching
+three files was verified against those three files' tests; a follow-up commit then widened it into
+an API resource other endpoints share and a screen that renders it. The scoped run still passed,
+because it covered the old radius, and the widening was caught only by noticing the diff stat had
+grown. **A commit made in response to a design steer is the one most likely to widen it** — the
+implementer is now touching code it had no reason to touch before.
+
+**Validate the instrument before citing a reading.** Vary one input and confirm the output changes.
+A number that does not move when its parameter moves is not a measurement. Observed: an API that
+silently ignored its pagination parameter returned the same window for every page, so a total and a
+"the listing never reaches X" finding were both artifacts of the instrument — briefed to an
+implementer as fact, and retracted mid-run while it was already working from them.
+
+**A killed or memory-reaped gate is not a green gate.** A harness can reap a backgrounded command
+and report nothing, which reads as a pass ([the standing
+workflow](standing-implementer-workflow.md)). Leftover scratch worktrees are a common cause. Observed:
+nine forgotten verification worktrees (2.4 GB) alongside three running implementers got three
+background verification runs reaped; removing them brought that to 79 MB. **Give every verification
+worktree a create → use → remove lifecycle inside the same step**, gate in the foreground, output to
+a file (§1.5), and the removal in that same step whatever the gate reported.
+
+**Control every red gate against `main`.** Run the same spec on `main` before attributing a failure
+to the branch. Only a failure `main` does not share belongs to the branch. **Compare the failing-test
+lists, never the colour or the exit code** — a gate already red on `main` stays red when the branch
+adds a new failure, and the exit status cannot tell you it did.
+
+**A mutation sensor must prove its mutation landed.** When mutating code to prove a test catches a
+defect: assert the target text appears **exactly once** before mutating, **count the replacements**
+after, **abort on zero**, and have the sensor fail when the suite still passes. A mutation that
+matched nothing leaves the code untouched, so whatever the suite then reports is about the original
+code — and it reads as a result.
+
+**A test-only commit that turns a red test green is read for weakening.** Open it
+(`git show <sha> -- <test paths>`). Adapting navigation or setup to an intended behaviour change is
+legitimate; changing **what is asserted** is not, however the commit message frames it.
+
+**Visual gates catch what behavioural tests cannot.** A list that scrolls one row too early still
+lets a test reach every row. When a pixel or screenshot gate goes red after an intended UI change,
+**open the diff image** and decide: a legitimate render change → regenerate the reference from the
+design source, and say so in the pull request; a layout break → fix the layout. **Never regenerate a
+reference just to turn a gate green.**
+
+**Green tests can still ship the wrong behaviour.** A fix can pass every test while removing the
+capability the feature exists for, because the tests assert that the new behaviour is implemented,
+not that it is the behaviour users need. Before reporting a behavioural fix verified, check the
+user-facing path itself.
+
+**Production is verified by driving the real surface, from the machine that matters.** A UI that
+opens is not a working change: fetch the actual resource and read its status. And the same resource
+can succeed from the server and fail from a consumer's network, or the reverse — a result measured
+on the wrong machine is not evidence about the other one. Changing production at all is a human's
+call ([D-11](decisions.md)).
 
 ## 8. Review-ready
 

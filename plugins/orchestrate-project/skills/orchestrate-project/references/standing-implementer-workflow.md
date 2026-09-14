@@ -46,6 +46,11 @@ cycle: implement → gate → atomic commit.
 **Stay inside this item's scope.** Anything you notice outside it — a bug, a refactor, a
 tempting cleanup — gets reported, not done.
 
+**Where your assignment names another branch or pull request as the owner of some files, a defect
+you find there is reported to that owner, never fixed here** — even when it is real and the fix is
+obvious. Someone else is changing those files right now; a second fix on your branch collides with
+theirs on rebase and puts one change in two reviews.
+
 **4. Run the gate.** Your assignment names the exact command and the directory to run it from —
 they come from `project.gate_command` and `project.gate_working_dir` in the repository's
 `.orchestrate-project.json`, written when the project was configured.
@@ -219,6 +224,11 @@ Never flip a PR to ready to unblock a teammate, to show progress, or because the
 for it. One report: each DoD entry with what you actually delivered against it, plus the PR URL.
 **Any entry you could not satisfy is stated explicitly** — never quietly omitted. Then make the
 review-stage transition, where that tracker defines one.
+
+**If the tracker refuses the write** — a plan limit, a missing permission, a server that is not
+reachable — do not improvise a substitute on the tracker. Put the same Definition of Done report in
+the pull-request body, state in your completion report that the tracker write was refused and with
+what error, and carry on. The orchestrator tells the user.
 
 **10. Report `worker_done`** to the orchestrator. Completion is reported, not inferred from a PR
 appearing — and least of all from a draft appearing.

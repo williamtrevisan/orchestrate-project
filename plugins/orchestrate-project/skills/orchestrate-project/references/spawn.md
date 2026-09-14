@@ -148,6 +148,10 @@ Each item's prompt contains:
   work is **already present and unreviewed** in the base, and that it must be reused rather than
   re-derived or corrected. An implementer that does not know it is standing on unmerged work will
   read a parent's artifact as pre-existing fact and never question it.
+- **Ownership fences, by owner.** For every area another in-flight item is changing, name the
+  branch or pull request that owns it and say that findings there are reported, not fixed. A bare
+  path list was crossed twice on one run ([Phase 4](monitor.md)). Where two items would edit the
+  same files, do not fence them at all — sequence them on the chain.
 
 It is written to `.orch/<REF>/prompt.md` — **outside the worktree, never inside it.** An implementer
 that can commit or delete its own assignment can destroy it, and then no restart can recover what it
@@ -192,17 +196,28 @@ just created fails with `workspace not found` whether you pass its name, its `wt
 absolute path. That refusal is one command away from gone:
 
 ```
-runner: register_workspace(worktree path)       → ws_…
+runner: register_workspace(worktree path, name)  → ws_…
 runner: spawn(agent, ws_…, prompt, provider, model, effort)
+runner: session_prompt(child id, opening instruction)
 ```
 
 ```
-compozy workspace add "<worktree path>"
+compozy workspace add "<worktree path>" --name <ITEM-REF>
 compozy spawn --agent <agent> --ttl-seconds <n> --workspace ws_… \
   --provider claude --model <model> --reasoning-effort <effort> \
   --auto-stop-on-parent=false --mcp-server <tracker-server> \
   --prompt-overlay "<prompt>" --name <ITEM-REF> -o json
+compozy session prompt <child-id> "<the opening instruction>"
 ```
+
+**Dispatch is three commands, never one.** Each of the three has been skipped in practice, and each
+skip looked like success: an unregistered workspace fails `spawn` with `workspace not found`, and a
+spawned child that is never prompted sits idle forever (step 7). `--provider` becomes required the
+moment `--model` is set, whatever `--help` says.
+
+**When this session is not itself runner-managed**, supply both halves of the identity inline on the
+`spawn` — `COMPOZY_SESSION_ID=<parent> COMPOZY_AGENT=<agent> compozy spawn …`. [The
+runner](runner.md) carries the whole line and the four refusals it took to find it.
 
 **Prefer this over `session new --worktree` + `session prompt`.** That pair also dispatches, and
 was the documented route while `workspace not found` looked like a property of worktrees rather
@@ -308,6 +323,10 @@ runner: sessions_for(worktree_id)   → state, health
   `session prompt` resolves its workspace from the current directory, so run it **from inside that
   child's worktree**. This step is why it is a step: the item was dispatched, the tracker said so,
   and nothing was running.
+
+  The message is **positional**; there is no `--message` flag. **Report the dispatch only after the
+  child is re-read as `running` or `prompting`.** It happened again on a later run: two implementers
+  sat idle because the spawn block returned success and was read as a dispatch.
 - **The worktree is bootstrapped** — poll for `project.bootstrap_marker` from configuration. Where
   no marker is configured, treat the worktree as ready on creation and say so, rather than
   inventing a filename to wait for. Bootstrap is asynchronous: the worktree appears before

@@ -139,6 +139,33 @@ The setting stays pending in that case. Read back what is *live* rather than wha
 **`--force` on `remove` confirms a destructive removal.** Read `cleanup_evidence` first and continue
 only when `cleanup.safe` is true. Removal deletes the linked checkout, never the branch or history.
 
+### Teardown is stop → archive → remove, in that order
+
+| Operation | Command |
+| --- | --- |
+| `stop_session(id)` | `compozy session stop <id> -o json` |
+| `archive_session(id)` | `compozy session archive <id> -o json` — accepts only a stopped session |
+| `remove_worktree(ref)` | `compozy worktree remove <ref> --force -o json` |
+
+**Removing the worktree first wedges the CLI.** A worktree whose session is still registered refuses
+with `workspace has active sessions`, and once the directory is gone the session can no longer be
+resolved to be stopped either. The recovery observed was to recreate the deleted path (`mkdir -p`)
+so the CLI could resolve it again, then stop and archive, then remove. The order costs nothing to
+follow and an afternoon to recover from.
+
+**Before any teardown, look for work that never landed.** A child can end its turn `done` with files
+written and nothing committed, pushed or opened as a pull request — the same shape as a killed one
+([Phase 4](monitor.md)):
+
+```
+git -C <worktree> status --short                  # uncommitted work
+git -C <worktree> log --oneline @{upstream}..HEAD # commits never pushed (errors if never pushed at all)
+```
+
+Either non-empty → **re-prompt the child to land it**, and tear down only after its branch and pull
+request reflect the tree. Removing the worktree at that point discards finished work nobody can
+recover.
+
 ## Dispatch
 
 | Operation | Command |
@@ -160,6 +187,53 @@ Check both, or the check is worth nothing.
 
 So the orchestrating session must itself be a Compozy session — [Phase 3](spawn.md) checks this
 first, because every other preflight can pass while this one makes dispatch impossible.
+
+### The whole dispatch line, from a session that is not runner-managed
+
+When the orchestrator is an ordinary agent session rather than one Compozy started, neither half of
+the identity is in its environment. **Both can be supplied inline, on the command itself.** This is
+the line that dispatched every implementer of a long multi-wave run (roughly fifteen, reported
+2026-09-12; every flag is on `spawn --help` for the pinned build):
+
+```
+COMPOZY_SESSION_ID=<parent-session-id> COMPOZY_AGENT=<orchestrator-agent-name> \
+compozy spawn --workspace <registered-workspace> --name <ITEM-REF> --agent <agent> \
+  --ttl-seconds <n> --provider claude --model <model> --reasoning-effort <effort> \
+  --auto-stop-on-parent=false --mcp-server <tracker-server> \
+  --prompt-overlay "$(cat .orch/<REF>/prompt.md)" -o json
+```
+
+It took four refusals to reach it, one flag at a time, and each refusal names only the first thing
+missing:
+
+| Refusal | What was missing |
+| --- | --- |
+| `required flag(s) "agent", "ttl-seconds" not set` | Neither flag has a default |
+| `COMPOZY_SESSION_ID is required for agent commands` | The first half of the identity |
+| `COMPOZY_AGENT is required for agent commands` | The second half, reported only once the first is present |
+| `invalid runtime override: provider is required when model is set` | `--help` lists `--provider` as optional; it stops being optional the moment `--model` is passed |
+
+**This amends, and does not simply contradict, the earlier finding** that borrowing the identity
+from an outside shell hangs. Those hangs are consistent with a daemon whose spawn budget was already
+spent (see "A daemon serves a handful of children per boot" below) — every one came after that day's
+only successful spawns — and the call site was separately shown not to be the discriminator. The inline pair gets past identity; it cannot get past a blocked
+daemon, and nothing on the caller's side can.
+
+**`spawn` targets a registered workspace, never a bare path.** Register first, and give it a name so
+the line above can use one:
+
+```
+compozy workspace add "<path>" --name <name>
+```
+
+Against an unregistered path, `spawn` fails with `workspace not found` — see "A worktree is not a
+workspace" below.
+
+**A `spawn` that returned a child has not started it.** The child sits idle until
+`session prompt` gives it a turn ([Phase 3](spawn.md), step 7). The message is **positional** —
+`compozy session prompt <child-id> "<message>"`; there is no `--message` flag — and the dispatch is
+reported only after the child is re-read as `running` or `prompting`. A spawn block that printed
+success is not evidence anything is working.
 
 **Creating the orchestrating session is itself done from outside** — see "Before anything: can
 this session dispatch at all?" in `SKILL.md`. `compozy session new --cwd "<repo path>"`
@@ -466,6 +540,36 @@ would have cost every in-flight implementer on the machine, across every reposit
 daemon. **Prefer waiting.** Restarting is a human's call, and the honest way to put it to them is
 with the count of sessions currently `active` — theirs and other runs' alike.
 
+### A hung daemon looks alive
+
+A daemon can be **hung rather than crashed**: the process is alive, `daemon.sock` exists, and the OS
+has nothing to report. Observed on a later run: writes failed first — `workspace add` returned
+`context deadline exceeded` — and reads followed, until `session list` timed out too. **Nothing
+restarts it**, because to every supervisor the process looks healthy.
+
+Tell it apart from the other two shapes before acting:
+
+| Shape | Signature |
+| --- | --- |
+| Crashed | `connection refused` on the socket, or no socket; `compozy status` names `daemon_unavailable` |
+| One handler wedged | Lists answer, one single-resource read times out (below) |
+| **Hung** | Socket accepts, writes time out, then reads time out too |
+
+**A timed-out listing is not an empty one.** `session list` that hits its deadline writes **nothing
+to stdout** — byte-identical to a machine with no sessions. Reading that as "no other work is
+running" is how an orchestrator talks itself into a restart that kills someone else's wave. Capture
+the exit status and stderr separately, unpiped, and treat anything but a clean exit as *unknown*:
+
+```
+compozy session list -o json > /tmp/sessions.json 2> /tmp/sessions.err; echo "exit=$?"
+```
+
+**The restart is still the human's, even when it blocks this run's dispatch.** Other orchestrations
+— for other projects, invisible from this repository — may be live on the same machine, and a
+restart kills every in-flight session they have. A hung daemon also cannot enumerate what would die
+("Make that decision cheap" above), so say that plainly: the blast radius is **unknown, not zero**.
+Surface it, name what the run was about to dispatch, and stop.
+
 `session resume` does not go through workspace resolution, which is why an already-created session
 can still be re-attached and prompted while new ones cannot be created. Recovering an existing
 session is therefore the first thing to try when dispatch stalls — not a daemon restart, which
@@ -557,8 +661,8 @@ Do not start a new worktree; you would throw away work that is sitting on disk.
 workspace: its name, its `wt_*` id and its absolute path all fail with `workspace not found`.
 
 ```
-compozy workspace add "<worktree path>"     # -> ws_…
-compozy spawn --workspace ws_… …
+compozy workspace add "<worktree path>" --name <ITEM-REF>     # -> ws_…
+compozy spawn --workspace ws_… …                              # or --workspace <ITEM-REF>
 ```
 
 `session new --cwd` auto-registers, which is why the orchestrating session never hits this — and
@@ -606,6 +710,22 @@ than matching display names.
 `--interrupt` with `--expected-turn-id` to replace or cut the active turn. **Prefer plain send or
 `--queue`.** Steering and interrupting act on a turn id that may have moved by the time the call
 lands; use them only when a session is demonstrably going the wrong way, never as a routine nudge.
+
+| Operation | Command |
+| --- | --- |
+| `queued_inputs(id)` | `compozy session input list <session-id> -o json` |
+| `cancel_input(id, entry)` | `compozy session input cancel <session-id> <input-id> -o json` |
+
+**`--queue` delivers after the current turn, and only then.** A long turn keeps running on the
+direction it started with, however many corrections are queued behind it, and the queue's depth is
+invisible unless you ask `session input list`. Observed: a corrective steer sat third in a queue
+while the implementer authored two commits it was meant to prevent; on another item every queued
+steer was still undelivered when the implementer finished the work on its own.
+
+**`--steer` and `--interrupt` are effectively unreachable.** Both require `--expected-turn-id`, and
+`session status` — plain and `-o json` — returns a state and a badge and **no turn id**. The only
+other source is the raw event stream, tens of kilobytes per read. Do not plan a recovery around
+cutting a turn; plan around the turn finishing ([Phase 4](monitor.md)).
 
 `compozy logs --follow` streams over SSE. Prefer `--last` for a bounded read; a follow that is never
 closed holds the session open.

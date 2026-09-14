@@ -767,3 +767,217 @@ class EveryRunCreatesItsOwnSession(unittest.TestCase):
         """Naming the errors stops someone restoring the rule."""
         for symptom in ("dead runtime", "not attachable", "identity_stale"):
             self.assertIn(symptom, self.skill)
+
+
+class DispatchIsTheWholeLineAndThePrompt(unittest.TestCase):
+    """Four refusals, one flag at a time, before a single dispatch; then two
+    implementers sat idle because a spawn that returned a child was read as a
+    dispatch; then a worktree removed before its session wedged the CLI.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+
+    def test_the_identity_is_checked_as_a_pair_before_phase_0(self):
+        section = self.skill[self.skill.index("## Before anything"):]
+        self.assertIn("`COMPOZY_AGENT`", section[:section.index("\n### ")])
+
+    def test_the_runner_carries_the_inline_identity_line(self):
+        self.assertIn("COMPOZY_SESSION_ID=<parent-session-id> COMPOZY_AGENT=", self.runner)
+
+    def test_every_refusal_on_the_way_is_named(self):
+        for refusal in ('"agent", "ttl-seconds" not set',
+                        "provider is required when model is set"):
+            self.assertIn(refusal, self.runner)
+
+    def test_a_workspace_is_registered_with_a_name(self):
+        self.assertIn('workspace add "<path>" --name', self.runner)
+
+    def test_the_prompt_is_part_of_the_dispatch(self):
+        self.assertIn("Dispatch is three commands, never one", self.spawn)
+        self.assertIn("no `--message` flag", self.spawn)
+
+    def test_teardown_has_an_order(self):
+        self.assertIn("stop → archive → remove", self.runner)
+        self.assertIn("workspace has active sessions", self.runner)
+
+    def test_teardown_looks_for_unlanded_work_first(self):
+        self.assertIn("look for work that never landed", self.runner)
+
+
+class AHungDaemonAndAFilteredPipeBothLookFine(unittest.TestCase):
+    """A daemon with a live process and a live socket timed out on writes, then
+    reads, and a timed-out `session list` printed nothing -- the same bytes as
+    a machine with no sessions. Separately, piped and silenced commands kept
+    reporting the status of the wrong process.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_hung_is_told_apart_from_crashed(self):
+        self.assertIn("hung rather than crashed", self.runner)
+
+    def test_an_empty_listing_after_a_timeout_is_unknown(self):
+        self.assertIn("A timed-out listing is not an empty one", self.runner)
+        self.assertIn("unknown, not zero", self.runner)
+
+    def test_the_restart_stays_with_the_human(self):
+        self.assertIn("still the human's, even when it blocks this run's dispatch", self.runner)
+
+    def test_the_pipe_status_trap_is_named(self):
+        self.assertIn("A filter hides the error you need", self.monitor)
+        self.assertIn("`head`'s", self.monitor)
+
+
+class SteersLandLateAndFencesNameAnOwner(unittest.TestCase):
+    """A corrective steer sat third in a queue while the implementer authored the
+    two out-of-scope commits it was meant to prevent, into files a second
+    implementer owned. The fence had named paths, not the owner.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+        self.workflow = read(os.path.join(
+            base, "references", "standing-implementer-workflow.md"))
+
+    def test_queue_delivery_is_after_the_turn(self):
+        self.assertIn("delivers after the current turn, and only then", self.runner)
+        self.assertIn("session input list", self.runner)
+
+    def test_the_missing_turn_id_is_recorded(self):
+        self.assertIn("no turn id", self.runner)
+
+    def test_the_queue_is_pruned_before_adding(self):
+        self.assertIn("Prune before you add", self.monitor)
+        self.assertIn("session input cancel", self.monitor)
+
+    def test_every_steer_restates_the_finish_line(self):
+        self.assertIn("Restate the whole finish line in every steer", self.monitor)
+
+    def test_fences_name_an_owner_and_overlap_is_sequenced(self):
+        self.assertIn("Fence by owner, not by path", self.monitor)
+        self.assertIn("sequence them instead of fencing", self.monitor)
+        self.assertIn("Ownership fences, by owner", self.spawn)
+        self.assertIn("reported to that owner, never fixed here", self.workflow)
+
+
+class VerificationReadsWhatItMeasured(unittest.TestCase):
+    """A scoped run stayed green after a follow-up commit widened the diff into
+    shared code; a briefing cited numbers from an API that ignored its page
+    parameter; background verification runs were reaped and reported nothing.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.advance = read(os.path.join(base, "references", "advance.md"))
+
+    def test_scope_growth_is_a_cheap_check(self):
+        self.assertIn("**Scope has not grown**", self.skill)
+
+    def test_blast_radius_is_per_head(self):
+        self.assertIn("Blast radius belongs to the verified head", self.skill)
+        self.assertIn("per verified head, not per item", self.monitor)
+
+    def test_the_instrument_is_validated(self):
+        self.assertIn("Validate the instrument before citing a reading", self.monitor)
+
+    def test_a_reaped_gate_is_not_green(self):
+        self.assertIn("A killed or memory-reaped gate is not a green gate", self.monitor)
+        self.assertIn("create → use → remove", self.monitor)
+
+    def test_red_gates_are_controlled_against_main(self):
+        self.assertIn("Compare the failing-test\nlists", self.monitor)
+
+    def test_mutation_sensors_count_replacements(self):
+        self.assertIn("abort on zero", self.monitor)
+
+    def test_green_making_test_commits_are_read(self):
+        self.assertIn("read for weakening", self.monitor)
+
+    def test_visual_references_are_never_regenerated_to_pass(self):
+        self.assertIn("Never regenerate a\nreference just to turn a gate green", self.monitor)
+
+    def test_the_user_facing_path_is_checked(self):
+        self.assertIn("Green tests can still ship the wrong behaviour", self.monitor)
+
+    def test_the_draft_flag_is_the_brake(self):
+        self.assertIn("gh pr ready <pr> --undo", self.advance)
+
+    def test_ci_red_starts_with_the_annotation(self):
+        self.assertIn("Read the check annotation", self.monitor)
+        self.assertIn("multi-minute duration", self.monitor)
+
+
+class TheRunKeepsItsOwnState(unittest.TestCase):
+    """Facts the orchestrator had already found -- an API address, the working
+    dispatch flags -- cost about six round trips each to rediscover, because
+    nothing it could re-read held them.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_the_run_state_file_is_named_in_both_places(self):
+        self.assertIn(".orch/RUN-STATE.md", self.skill)
+        self.assertIn(".orch/RUN-STATE.md", self.monitor)
+
+    def test_it_is_read_first_and_never_replaces_the_graph(self):
+        self.assertIn("read this file before anything else", self.monitor)
+        self.assertIn("it\nnever replaces the graph", self.monitor)
+
+    def test_compaction_happens_at_boundaries(self):
+        self.assertIn("Compact at boundaries", self.skill)
+
+    def test_it_never_holds_a_credential(self):
+        self.assertIn("never a credential", self.monitor)
+
+    def test_polls_and_secondary_measurements_are_bounded(self):
+        self.assertIn("Prefer single-shot checks to long background polls", self.monitor)
+        self.assertIn("Bound the attempts on a secondary measurement", self.monitor)
+
+
+class ProductionAndRetractionsAreHonest(unittest.TestCase):
+    """Production actions sit outside every review this skill has, and a claim
+    the orchestrator retracted in chat kept living in a briefing and a pull
+    request body.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.decisions = read(os.path.join(base, "references", "decisions.md"))
+        self.workflow = read(os.path.join(
+            base, "references", "standing-implementer-workflow.md"))
+
+    def test_production_actions_are_surfaced_not_done(self):
+        surface = self.skill[self.skill.index("## Surface, don't auto-do"):]
+        surface = surface[:surface.index("\n## ")]
+        self.assertIn("destructive or outward production action", surface)
+
+    def test_each_action_is_authorized_and_logged_with_a_revert(self):
+        self.assertIn("for that instance", self.decisions)
+        self.assertIn('"not reversible"', self.decisions)
+
+    def test_production_is_measured_from_the_machine_that_matters(self):
+        self.assertIn("from the machine that matters", self.monitor)
+
+    def test_retractions_reach_every_place_the_claim_went(self):
+        self.assertIn("retracted everywhere it travelled", self.decisions)
+        self.assertIn("edits the body itself", self.decisions)
+
+    def test_a_refused_tracker_write_has_a_stated_fallback(self):
+        self.assertIn("If the tracker refuses the write", self.workflow)

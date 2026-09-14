@@ -63,6 +63,13 @@ is still a draft, that is a question for its implementer or a human — re-engag
 ([Phase 4](monitor.md)) rather than undrafting it. `gh pr ready` is the implementer's assertion
 that the branch is complete, and asserting it for them is how a dependent ends up on a stub.
 
+**Hold an unready PR with the draft flag, not with a message.** When verification finds a ready PR
+is not ready, put it back: `gh pr ready <pr> --undo`. A human merges on what the forge shows —
+mergeable, green, out of draft — and will not have read the chat, so **the draft flag is the brake
+and the message is only the explanation**. The same holds in the other direction: never mark a PR
+ready, or report it ready, while its implementer is still committing. Confirm the session has gone
+quiet and the head SHA is the one you verified.
+
 **3. Check the review gate, where the run declares one.**
 
 A **gated item** releases its dependents only after a human has approved its PR, not merely opened

@@ -88,6 +88,10 @@ That is the largest single lever in this skill, and it is free:
 - **On a resume, state what is already true.** The open PRs and their bases, the items done, the
   item in flight and where its worktree is. The contract's "re-read the graph live" is about the
   *dependency graph*, not about rediscovering a run's own history.
+- **Keep that state in one file the orchestrator owns, and read it first.** `.orch/RUN-STATE.md`,
+  rewritten after every state change and read before anything else after a compaction or a resume
+  ([Phase 4](references/monitor.md) §1.6 has its shape). **Compact at boundaries** — after a PR is
+  verified, after a wave is dispatched — not when the window fills.
 - **Reaching Phase 3 with a nearly full window means the wave starts and immediately dies**
   (see the cold-start section). Dispatch what is eligible *first*, report afterwards.
 - **A read/write ratio near 200:1 is the tell.** Orchestrator #1 produced 94k output tokens from
@@ -108,6 +112,7 @@ session, for the cost of a few greps**, before spending anything:
 | The deliverable exists and is the right shape | `--name-only`, line count |
 | **Provenance** — every "counted by X" / "per X" claim | grep the cited document for the claim's subject. Two items shipped a fabricated citation; both were one grep away |
 | **Citation reachability** — cited lines are live code | open 3–5 cited lines; for PHP, check the statement is not commented out. A cited line can be exactly right and still be dead code |
+| **Scope has not grown** since the last verified pass | `git diff --name-only origin/main...<head>` against the list you last verified. Any new file outside it means re-scope before re-running ([Phase 4](references/monitor.md)) |
 
 **Escalate to a high-tier verification agent only when one fires, or when the item's blast radius
 earns it.** These checks caught, in hindsight, the two most damaging real defects of the run.
@@ -119,6 +124,11 @@ earns it.** These checks caught, in hindsight, the two most damaging real defect
 | Leaf — nothing depends on it | Cheap checks only. **No agent.** |
 | One dependent | Cheap checks + a targeted pass on the two or three ACs most likely to be wrong |
 | Two or more dependents, or an artifact consumed as fact | One deep pass |
+
+**Blast radius belongs to the verified head, not to the item** — a later commit moves it, so it is
+re-derived on every pass. [Phase 4](references/monitor.md) carries that and the rest of the
+verification discipline: validate the instrument, never read a killed gate as green, and control
+every red gate against `main`.
 
 ### A re-verification verifies the diff, never the artifact again
 
@@ -289,9 +299,14 @@ that moment — never perform it, never silently skip mentioning it:
 - **A feature flag or kill-switch defaulting OFF.** Name it and state that flipping it is a human
   call. Never flip it.
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
+- **Any destructive or outward production action** — purging a queue, changing a production env
+  var, repointing live data, a deploy that changes config. Explicit authorization for that one
+  instance, and a written log entry with the before-state and the revert, or "not reversible"
+  ([D-11](references/decisions.md)).
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
-- **A runner that cannot dispatch.** When `spawn` is wedged ([the runner](references/runner.md)),
-  say so with the attempts you made and stop dispatching. **Never restart the daemon to clear
+- **A runner that cannot dispatch.** When `spawn` is wedged, or the daemon is hung rather than
+  crashed ([the runner](references/runner.md)), say so with the attempts you made and stop
+  dispatching. **Never restart the daemon to clear
   it** — a restart kills every in-flight implementer on the machine, including waves from runs
   this skill cannot see. Naming it is the whole job; the restart is the human's.
 - **CI that never starts.** A red check whose job ran no steps is the repository's condition, not
@@ -307,8 +322,10 @@ identity_required — COMPOZY_SESSION_ID is required for agent commands
 ```
 
 So **the first action of a run — before [Phase 0](references/read.md) reads a single item — is to
-check that `COMPOZY_SESSION_ID` is set in this session's environment.** Unset means this session
-cannot dispatch, and the run stops there.
+check that `COMPOZY_SESSION_ID` and `COMPOZY_AGENT` are both set in this session's environment, or
+that the run has both values to supply inline on `spawn`** ([the runner](references/runner.md) has
+the whole line). The second is only reported once the first is present, so checking one is checking
+neither. Without both, this session cannot dispatch, and the run stops there.
 
 It is checked here rather than alongside the rest of the dispatch preflight
 ([Phase 3](references/spawn.md)) because of what sits in between. Phase 0 reads a whole
@@ -399,8 +416,14 @@ Two consequences, and neither is optional:
 
   So the cost problem above has exactly one remedy that is known to work: **dispatch early in the
   turn**, before the window is spent. Handing the invocation to a fresh session and driving it
-  from outside remains the documented cold start; taking its identity and skipping the session is
-  not a shortcut, it is a hang.
+  from outside remains the documented cold start.
+
+  **Amended by a later run.** Those ten hangs are consistent with a daemon whose per-boot spawn
+  budget was already spent ([the runner](references/runner.md)), and the call site has since been
+  shown not to be the discriminator. On a later long run the pair supplied inline — with `--agent`,
+  `--ttl-seconds`, `--provider` alongside `--model`, and `--auto-stop-on-parent=false` — dispatched
+  every implementer from a session that was not runner-managed. The identity is not the obstacle; a
+  blocked daemon is, and borrowing the identity does not get past that.
 
 ## Selecting the tracker
 
