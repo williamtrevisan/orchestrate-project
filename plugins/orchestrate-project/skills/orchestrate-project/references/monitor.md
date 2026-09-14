@@ -35,6 +35,28 @@ looks like. Observed 2026-09-06: a monitor stayed silent through a full daemon o
 "still going." Emit an explicit `runner unreachable` line, and keep emitting the git-side counts
 beside it, so silence never has two meanings.
 
+## 1.5 A filter hides the error you need
+
+Keeping raw output out of the window is right (see the run-state section below), and every way of
+doing it carelessly has hidden a failure:
+
+| Filter | What it hides |
+| --- | --- |
+| `cmd \| tail -N` | The error printed above the last N lines — usually the first, causal one |
+| `cmd >/dev/null 2>&1` | The diagnostic, entirely. Only the exit status survives, and several tools here exit 0 on failure ([the runner](runner.md)) |
+| `cmd \| head; echo $?` | `$?` is **`head`'s** status, not `cmd`'s. After a pipe it is always the last command's |
+| `cmd \| grep x \| head \|\| echo fallback` | The fallback fires on `grep` finding nothing, never on `cmd` failing; a crashed `cmd` and an absent match look the same |
+
+**Write the output to a file and capture the status unpiped**, then filter the file:
+
+```
+cmd > /tmp/out.txt 2>&1; echo "exit=$?"
+grep -E '<what you need>' /tmp/out.txt
+```
+
+Filter for what you need — a count, a status field, `--name-only` — and never filter away the error
+channel. When the filtered view does not explain the result, read the file.
+
 ## 2. Two independent dedup keys
 
 So CI state and review state are never conflated:

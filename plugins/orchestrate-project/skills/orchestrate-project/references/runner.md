@@ -540,6 +540,36 @@ would have cost every in-flight implementer on the machine, across every reposit
 daemon. **Prefer waiting.** Restarting is a human's call, and the honest way to put it to them is
 with the count of sessions currently `active` — theirs and other runs' alike.
 
+### A hung daemon looks alive
+
+A daemon can be **hung rather than crashed**: the process is alive, `daemon.sock` exists, and the OS
+has nothing to report. Observed on a later run: writes failed first — `workspace add` returned
+`context deadline exceeded` — and reads followed, until `session list` timed out too. **Nothing
+restarts it**, because to every supervisor the process looks healthy.
+
+Tell it apart from the other two shapes before acting:
+
+| Shape | Signature |
+| --- | --- |
+| Crashed | `connection refused` on the socket, or no socket; `compozy status` names `daemon_unavailable` |
+| One handler wedged | Lists answer, one single-resource read times out (below) |
+| **Hung** | Socket accepts, writes time out, then reads time out too |
+
+**A timed-out listing is not an empty one.** `session list` that hits its deadline writes **nothing
+to stdout** — byte-identical to a machine with no sessions. Reading that as "no other work is
+running" is how an orchestrator talks itself into a restart that kills someone else's wave. Capture
+the exit status and stderr separately, unpiped, and treat anything but a clean exit as *unknown*:
+
+```
+compozy session list -o json > /tmp/sessions.json 2> /tmp/sessions.err; echo "exit=$?"
+```
+
+**The restart is still the human's, even when it blocks this run's dispatch.** Other orchestrations
+— for other projects, invisible from this repository — may be live on the same machine, and a
+restart kills every in-flight session they have. A hung daemon also cannot enumerate what would die
+("Make that decision cheap" above), so say that plainly: the blast radius is **unknown, not zero**.
+Surface it, name what the run was about to dispatch, and stop.
+
 `session resume` does not go through workspace resolution, which is why an already-created session
 can still be re-attached and prompted while new ones cannot be created. Recovering an existing
 session is therefore the first thing to try when dispatch stalls — not a daemon restart, which

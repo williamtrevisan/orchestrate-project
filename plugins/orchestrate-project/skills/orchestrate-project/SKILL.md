@@ -290,8 +290,9 @@ that moment — never perform it, never silently skip mentioning it:
   call. Never flip it.
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
-- **A runner that cannot dispatch.** When `spawn` is wedged ([the runner](references/runner.md)),
-  say so with the attempts you made and stop dispatching. **Never restart the daemon to clear
+- **A runner that cannot dispatch.** When `spawn` is wedged, or the daemon is hung rather than
+  crashed ([the runner](references/runner.md)), say so with the attempts you made and stop
+  dispatching. **Never restart the daemon to clear
   it** — a restart kills every in-flight implementer on the machine, including waves from runs
   this skill cannot see. Naming it is the whole job; the restart is the human's.
 - **CI that never starts.** A red check whose job ran no steps is the repository's condition, not

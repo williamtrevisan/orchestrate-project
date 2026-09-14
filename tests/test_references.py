@@ -806,3 +806,30 @@ class DispatchIsTheWholeLineAndThePrompt(unittest.TestCase):
 
     def test_teardown_looks_for_unlanded_work_first(self):
         self.assertIn("look for work that never landed", self.runner)
+
+
+class AHungDaemonAndAFilteredPipeBothLookFine(unittest.TestCase):
+    """A daemon with a live process and a live socket timed out on writes, then
+    reads, and a timed-out `session list` printed nothing -- the same bytes as
+    a machine with no sessions. Separately, piped and silenced commands kept
+    reporting the status of the wrong process.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+
+    def test_hung_is_told_apart_from_crashed(self):
+        self.assertIn("hung rather than crashed", self.runner)
+
+    def test_an_empty_listing_after_a_timeout_is_unknown(self):
+        self.assertIn("A timed-out listing is not an empty one", self.runner)
+        self.assertIn("unknown, not zero", self.runner)
+
+    def test_the_restart_stays_with_the_human(self):
+        self.assertIn("still the human's, even when it blocks this run's dispatch", self.runner)
+
+    def test_the_pipe_status_trap_is_named(self):
+        self.assertIn("A filter hides the error you need", self.monitor)
+        self.assertIn("`head`'s", self.monitor)
