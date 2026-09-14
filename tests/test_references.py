@@ -984,9 +984,10 @@ class ProductionAndRetractionsAreHonest(unittest.TestCase):
 
 
 class CostFollowsContextTimesTurns(unittest.TestCase):
-    """Summed from every transcript of a real multi-week run: 98% of all tokens
-    were cache reads and 0.3% output, orchestrators took about half, and one
-    orchestrator session alone was 15% of the lifetime spend -- an inline
+    """Summed from every transcript of a real multi-week run, each response
+    counted once: 98.3% of all tokens were cache reads and 0.22% output,
+    orchestrators took about half, and one orchestrator session alone was
+    12.8% of the lifetime spend -- an inline
     investigation, monitors waking it for nothing, and the top tier on every
     mechanical turn.
     """
@@ -1000,9 +1001,19 @@ class CostFollowsContextTimesTurns(unittest.TestCase):
 
     def test_the_measured_evidence_ships_with_the_rule(self):
         self.assertIn("cost ≈ context size × number of turns", self.skill)
-        self.assertIn("18.9 B (98%)", self.skill)
-        self.assertIn("15% of the run's lifetime spend", self.skill)
-        self.assertIn("15% of the run's lifetime spend", self.monitor)
+        self.assertIn("**9.76 B**", self.skill)
+        self.assertIn("98.3% of all tokens", self.skill)
+        self.assertIn("12.8% of the run's lifetime spend", self.skill)
+        self.assertIn("12.8% of the run's lifetime spend", self.monitor)
+        for inflated in ("19.4 B", "2.88 B", "15% of the run's lifetime spend", "5,739"):
+            self.assertNotIn(inflated, self.skill)
+            self.assertNotIn(inflated, self.monitor)
+            self.assertNotIn(inflated, self.decisions)
+
+    def test_the_recipe_counts_each_response_once(self):
+        self.assertIn('message.get("id") or entry.get("requestId") or entry.get("uuid")', self.monitor)
+        self.assertIn("a naive line sum overstates every absolute total about 2×", self.monitor)
+        self.assertIn("Check the ratio of usage lines to unique ids before trusting a total", self.monitor)
 
     def test_the_delegation_budget_is_the_largest_lever(self):
         self.assertIn("Delegation budget: at most ~5 tool calls on any one question", self.skill)

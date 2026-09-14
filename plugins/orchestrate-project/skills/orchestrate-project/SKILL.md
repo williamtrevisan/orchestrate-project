@@ -108,20 +108,23 @@ These totals are summed from the `usage` fields of every session transcript of a
 orchestration run. They are measured, not estimated ([Phase 4](references/monitor.md) §3.4 has the
 recipe):
 
-| Model | Total tokens | Cache reads | Output |
-| --- | --- | --- | --- |
-| Sonnet | 11.2 B | 11.0 B | 30.6 M |
-| Opus | 8.1 B | 7.9 B | 23.0 M |
-| **Total** | **19.4 B** | **18.9 B (98%)** | **53.6 M (0.3%)** |
+| Model | Total tokens |
+| --- | --- |
+| Sonnet | 5.80 B |
+| Opus | 3.97 B |
+| **Total** | **9.76 B** |
 
-- **Cache reads are 98% of all tokens, and output is 0.3%.** Every turn re-reads the whole context,
-  so **cost ≈ context size × number of turns**. Shorter answers are not the lever. Fewer turns at a
-  smaller context are.
-- **Orchestrator sessions took ~10.0 B tokens, about 52% of the run.** ~120 implementer worktrees
-  shared the other half, ~78 M each. The five largest sessions were all orchestrators.
-- **One orchestrator session alone was 2.88 B tokens, 15% of the run's lifetime spend.** That is
-  roughly 37 implementers' worth: 5,739 messages at 339:1 read-to-write, ~2,070 shell calls, ~52
-  monitors armed and ~47 stopped, ~220 tracker writes.
+Each response is counted once, by message id. A transcript repeats a response's usage on one line
+per content block, and summing those lines overstated these totals about 2×.
+
+- **Cache reads are 98.3% of all tokens, and output is 0.22%.** Every turn re-reads the whole
+  context, so **cost ≈ context size × number of turns**. Shorter answers are not the lever. Fewer
+  turns at a smaller context are.
+- **Orchestrator sessions took 4.92 B tokens, 50.4% of the run.** ~120 implementer worktrees shared
+  ~4.84 B, about 40 M each. The five largest sessions were all orchestrators.
+- **One orchestrator session alone was 1.25 B tokens, 12.8% of the run's lifetime spend.** That is
+  about 31 implementers' worth: 2,591 messages at 339:1 read-to-write, dominated by shell calls,
+  repeatedly armed and stopped monitors, and tracker writes.
 - **A fresh-context subagent made a multi-file documentation change in 248 k tokens across 89 tool
   calls.** The same work inside that orchestrator re-reads a context hundreds of thousands of tokens
   deep on every call.

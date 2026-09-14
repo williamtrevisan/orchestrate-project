@@ -218,10 +218,11 @@ It retries a measurement nothing waits on at most twice, runs one verification j
 keeps chat updates short. Its mechanical turns run on the execution tier, and its judgement turns on a
 high tier.
 
-**Why.** Summed from every session transcript of a real multi-week run: 19.4 B tokens, **98% of
-them cache reads and 0.3% output**. Each turn re-reads the whole context, so cost ≈ context size ×
-turns. Orchestrator sessions took ~52% of the run, against ~120 implementer worktrees sharing the
-rest. One orchestrator session alone was 2.88 B tokens, 15% of the lifetime spend: a production
+**Why.** Summed from every session transcript of a real multi-week run, each response counted once:
+9.76 B tokens, **98.3% of them cache reads and 0.22% output**. Each turn re-reads the whole context,
+so cost ≈ context size × turns. Orchestrator sessions took 50.4% of the run, against ~120 implementer
+worktrees sharing the rest. One orchestrator session alone was 1.25 B tokens, 12.8% of the lifetime
+spend: a production
 investigation run inline, monitors waking it for non-actionable state changes, retries at full
 context, long status replies, and the top tier on every mechanical turn.
 

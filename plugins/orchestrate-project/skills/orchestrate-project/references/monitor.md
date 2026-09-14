@@ -11,8 +11,8 @@ submitted reviews and inline review comments. **Prefer a monitor that exits when
 needed** and is re-armed for the next wave, over one that streams for the whole run.
 
 **Every event it emits costs a full-context orchestrator turn.** That is the whole design
-constraint ([`SKILL.md`](../SKILL.md), cost discipline). Measured on a real multi-week run: the
-costliest orchestrator session armed ~52 monitors and stopped ~47. Many of their events were
+constraint ([`SKILL.md`](../SKILL.md), cost discipline). On a real multi-week run, the costliest
+orchestrator session armed and stopped monitors over and over. Many of their events were
 running↔done flips, changed-file counts and head moves, and each one woke a turn that concluded
 "nothing to do". **An event that leads to no action is a wasted full-context turn.** Design the
 filter so those events are never emitted, instead of reading and dismissing them. When every signal
@@ -110,10 +110,10 @@ dispatched — with the file just rewritten. Compacting when the window happens 
 mid-dispatch, which is the cold-start failure in `SKILL.md` seen from the other side.
 
 The schedule is a cost rule as much as a correctness one. **Cost ≈ context size × number of turns**,
-because every turn re-reads the whole window: cache reads were 98% of every token on a real
-multi-week run, and output was 0.3%. A window that is never compacted makes every later turn pay for
-all the earlier ones. The costliest orchestrator session on that run was never reset this way, and it
-alone was **15% of the run's lifetime spend**.
+because every turn re-reads the whole window: cache reads were 98.3% of every token on a real
+multi-week run, and output was 0.22%. A window that is never compacted makes every later turn pay
+for all the earlier ones. The costliest orchestrator session on that run was never reset this way,
+and it alone was **12.8% of the run's lifetime spend**.
 
 **Prefer single-shot checks to long background polls.** A backgrounded poll loop is exactly what a
 harness reaps under memory pressure, and a reaped poll reports nothing. The wave's monitor (§1)
@@ -142,7 +142,7 @@ implementer when code must change — and receives only the conclusion.
 | Any question already past its fifth call | Rewriting RUN-STATE |
 
 Measured on a real multi-week run: one production investigation of well over a hundred tool calls
-ran inside the orchestrator, in a session that ended at 2.88 B tokens. For contrast, a fresh-context
+ran inside the orchestrator, in a session that ended at 1.25 B tokens. For contrast, a fresh-context
 subagent made a multi-file documentation change in **248 k tokens across 89 tool calls**. Every call
 inside the orchestrator re-reads a context hundreds of thousands of tokens deep; a subagent's calls
 re-read only what that question needs. The budget is counted per question, not per turn: the sixth
@@ -246,27 +246,43 @@ import collections, glob, json, os, sys
 FIELDS = ("input_tokens", "cache_creation_input_tokens",
           "cache_read_input_tokens", "output_tokens")
 totals, seen = collections.defaultdict(collections.Counter), set()
+usage_lines = 0
 for root in sys.argv[1:]:
     for path in glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True):
         for line in open(path, encoding="utf-8", errors="replace"):
             try:
-                message = json.loads(line).get("message") or {}
+                entry = json.loads(line)
             except ValueError:
                 continue
+            message = entry.get("message") if isinstance(entry, dict) else None
             usage = message.get("usage") if isinstance(message, dict) else None
-            if not usage or message.get("id") in seen:
+            if not usage:
                 continue
-            seen.add(message.get("id"))
+            usage_lines += 1
+            ident = message.get("id") or entry.get("requestId") or entry.get("uuid")
+            if ident in seen:
+                continue
+            seen.add(ident)
             key = (os.path.basename(root), message.get("model"))
             totals[key].update({f: usage.get(f) or 0 for f in FIELDS})
 for key, counter in sorted(totals.items()):
     print(key, dict(counter))
+print("usage lines", usage_lines, "unique messages", len(seen),
+      "ratio %.2f" % (usage_lines / max(len(seen), 1)))
 EOF
 ```
 
-**Count each `message.id` once.** One response is written as several lines, one per content block,
-each repeating the same `usage`. Checked on a real transcript: 355 lines carried usage, but only 189
-distinct messages. A naive sum nearly doubles the total.
+**Count each `message.id` once**, falling back to `requestId`, then `uuid`, when a line has no id.
+One response is written as several lines, one per content block, each repeating the same `usage`, so
+**a naive line sum overstates every absolute total about 2×.** Measured on a real run: 64,378 usage
+lines were only 31,965 unique messages, 2.01× inflation. This skill's own first published figures
+made exactly that mistake and had to be retracted.
+
+**Check the ratio of usage lines to unique ids before trusting a total.** A ratio near 1 means the
+transcripts were already one line per response. A ratio near 2 means an undeduplicated sum is off by
+that factor. Ratios between token types survive the duplication, because it inflates numerator and
+denominator equally; absolute counts, per-session shares of a differently-duplicated total, and
+tool-call counts taken from the same lines do not.
 
 **Group by directory and `message.model`**, so the orchestrator's share and each tier's share are
 visible separately. **Report tokens by type**, never one blended number, because the read share is
