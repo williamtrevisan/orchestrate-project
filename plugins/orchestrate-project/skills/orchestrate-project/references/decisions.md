@@ -209,3 +209,30 @@ the chat alone would have left the wrong number in every place a reviewer actual
 **Cost.** Editing a pull-request body the implementer wrote is a write to something the orchestrator
 does not own. It is limited to removing the orchestrator's own retracted claim, and it is disclosed
 in the pull request every time.
+
+## D-13 · Cost follows context × turns, so the orchestrator delegates, filters, and steps down a tier
+
+**Decision.** The orchestrator spends at most ~5 tool calls on any one question before delegating
+it. Its monitors emit only actionable events. It compacts on a schedule and resumes from RUN-STATE.
+It retries a measurement nothing waits on at most twice, runs one verification job per PR head, and
+keeps chat updates short. Its mechanical turns run on the execution tier, and its judgement turns on a
+high tier.
+
+**Why.** Summed from every session transcript of a real multi-week run, each response counted once:
+9.76 B tokens, **98.3% of them cache reads and 0.22% output**. Each turn re-reads the whole context,
+so cost ≈ context size × turns. Orchestrator sessions took 50.4% of the run, against ~120 implementer
+worktrees sharing the rest. One orchestrator session alone was 1.25 B tokens, 12.8% of the lifetime
+spend: a production
+investigation run inline, monitors waking it for non-actionable state changes, retries at full
+context, long status replies, and the top tier on every mechanical turn.
+
+**What this overturns.** The model policy in `SKILL.md` said "Opus orchestrates", which put every
+orchestrator turn on the top tier. It now says the top tier *judges*. D-5 is unchanged: items are still tiered by what they produce, and verification of another item's output
+stays high. What moved is the tier of the orchestrator's own mechanical loop.
+
+**Cost, in the direction of missing things.** A delegated question returns only a conclusion, so the
+orchestrator no longer sees the evidence it would have noticed in passing. A filtered monitor will not
+surface a state change nobody predicted was actionable. An execution-tier loop can misjudge what
+needs escalation. The mitigations are an explicit escalation list and the rule that a verdict comes
+with its evidence. But this decision trades some peripheral vision for roughly half a run's spend,
+knowingly.

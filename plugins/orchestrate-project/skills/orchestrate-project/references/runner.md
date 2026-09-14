@@ -282,8 +282,10 @@ again (`claude-sonnet-5`), so compare tiers, never raw strings.
 
 [Phase 3](spawn.md) asserts the tier of every *item*. Nothing asserts the tier of the session
 doing the asserting. A session created by `session new` takes no provider, model or
-reasoning-effort — it resolves to whatever the machine default happens to be that day — so
-"Opus orchestrates" ([D-5](decisions.md)) holds only by luck.
+reasoning-effort — it resolves to whatever the machine default happens to be that day — so the
+tier the model policy intends for it holds only by luck. Since [D-13](decisions.md) that tier
+depends on the shape chosen — a high-tier orchestrator with an execution-tier monitoring helper, or
+an execution-tier orchestrator that escalates its judgement turns — so assert the one this run chose.
 
 Observed 2026-09-06: a cold-started orchestrator came up on `claude-sonnet-5` and began Phase 0.
 Nothing reported it. It is the same class of bug the item-level assertion exists to catch, one

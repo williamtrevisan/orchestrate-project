@@ -91,14 +91,55 @@ That is the largest single lever in this skill, and it is free:
 - **Keep that state in one file the orchestrator owns, and read it first.** `.orch/RUN-STATE.md`,
   rewritten after every state change and read before anything else after a compaction or a resume
   ([Phase 4](references/monitor.md) §1.6 has its shape). **Compact at boundaries** — after a PR is
-  verified, after a wave is dispatched — not when the window fills.
+  verified, after a wave is dispatched — not when the window fills. Every later turn re-reads
+  whatever the window still holds (next subsection).
 - **Reaching Phase 3 with a nearly full window means the wave starts and immediately dies**
   (see the cold-start section). Dispatch what is eligible *first*, report afterwards.
 - **A read/write ratio near 200:1 is the tell.** Orchestrator #1 produced 94k output tokens from
-  21.3M total — almost everything it spent was re-reading context it already had.
+  21.3M total — almost everything it spent was re-reading context it already had. The costliest
+  session measured since ran at 339:1.
 
 **Item cost tracks ticket size, so plan with it.** The 10-AC item cost 4× the median. When one item
 dwarfs the others, that is the one to split, not the one to give a bigger model.
+
+### Cost is context size × turns, and the orchestrator holds most of both
+
+These totals are summed from the `usage` fields of every session transcript of a real multi-week
+orchestration run. They are measured, not estimated ([Phase 4](references/monitor.md) §3.4 has the
+recipe):
+
+| Model | Total tokens |
+| --- | --- |
+| Sonnet | 5.80 B |
+| Opus | 3.97 B |
+| **Total** | **9.76 B** |
+
+Each response is counted once, by message id. A transcript repeats a response's usage on one line
+per content block, and summing those lines overstated these totals about 2×.
+
+- **Cache reads are 98.3% of all tokens, and output is 0.22%.** Every turn re-reads the whole
+  context, so **cost ≈ context size × number of turns**. Shorter answers are not the lever. Fewer
+  turns at a smaller context are.
+- **Orchestrator sessions took 4.92 B tokens, 50.4% of the run.** ~120 implementer worktrees shared
+  ~4.84 B, about 40 M each. The five largest sessions were all orchestrators.
+- **One orchestrator session alone was 1.25 B tokens, 12.8% of the run's lifetime spend.** That is
+  about 31 implementers' worth: 2,591 messages at 339:1 read-to-write, dominated by shell calls,
+  repeatedly armed and stopped monitors, and tracker writes.
+- **A fresh-context subagent made a multi-file documentation change in 248 k tokens across 89 tool
+  calls.** The same work inside that orchestrator re-reads a context hundreds of thousands of tokens
+  deep on every call.
+
+What drove that session, and the rule that prevents each, ranked by impact:
+
+| # | What happened | Rule |
+| --- | --- | --- |
+| 1 | A production investigation of well over a hundred tool calls ran inside the orchestrator | **Delegation budget: at most ~5 tool calls on any one question, then delegate it**, and receive only the conclusion. Investigations, verification passes, large diffs and production diagnosis belong in a fresh context. **This is the single largest lever** ([Phase 4](references/monitor.md) §1.7) |
+| 2 | Monitors fired on running↔done flips, changed-file counts and head moves. Each event woke a full-context turn that concluded "nothing to do" | **Monitors emit only actionable events** ([Phase 4](references/monitor.md) §1). An event that leads to no action is a wasted full-context turn: filter it out at the source, and stop a monitor whose remaining signals are all non-actionable |
+| 3 | The window was left to grow across thousands of messages | **Compact on a schedule**: after each verified PR and after each wave dispatch, resuming from RUN-STATE |
+| 4 | The top tier ran read-event → check-status → report turns | **Model per turn**: top tier for judgement, a cheaper tier for the mechanical loop (Model policy below) |
+| 5 | Wrong hypotheses, instrument errors and filters that hid errors multiplied turns at full context | **Two attempts at most** on any measurement nothing is waiting on, then record why and stop |
+| 6 | Sequential probes of one PR each woke the orchestrator | **One verification job per PR head**, returning a single summary ([Phase 4](references/monitor.md) §7.5) |
+| 7 | Long status replies became permanent context that every later turn re-read | **Short chat updates.** The durable record belongs in RUN-STATE and PR comments |
 
 ### Cheap checks first — escalate only on a signal
 
@@ -116,6 +157,9 @@ session, for the cost of a few greps**, before spending anything:
 
 **Escalate to a high-tier verification agent only when one fires, or when the item's blast radius
 earns it.** These checks caught, in hindsight, the two most damaging real defects of the run.
+
+They fit inside the delegation budget above, and that is the point of them. A check that grows past
+~5 tool calls is no longer cheap: hand it to a subagent and read its verdict.
 
 ### Verification depth follows blast radius, not uniform policy
 
@@ -151,6 +195,11 @@ Report cumulative verification cost as the run proceeds. When it passes what the
 spend, **drop to cheap checks and say so** — do not silently keep spending, and do not silently
 stop verifying. A run that reports "validated lightly from here" is honest; one that quietly does
 either is not.
+
+Report the **orchestrator's** spend beside the implementers', because it is the half nobody budgets.
+When the runner's usage report is unavailable, sum the session transcripts instead
+([Phase 4](references/monitor.md) §3.4). Report tokens by type, and never quote per-token prices
+from memory.
 
 ## One orchestration per repository at a time
 
@@ -237,8 +286,25 @@ Both apply identically inside every dispatched worktree — there is no orchestr
 
 ## Model policy
 
-**Opus orchestrates. The tier an item runs on follows what the item's deliverable actually is
-([D-5](references/decisions.md)).**
+**The top tier judges; the mechanical loop runs a tier lower. The tier an item runs on follows what
+the item's deliverable actually is ([D-5](references/decisions.md)).**
+
+**Amended by measured spend ([D-13](references/decisions.md)).** This section used to open with
+"Opus orchestrates", which put every orchestrator turn on the top tier. Most orchestrator turns are
+not judgement: read an event, check a status, update RUN-STATE, report. On the run measured above,
+the top tier ran thousands of such turns at full context. What changed is the orchestrator's *own*
+turns; nothing about items changed:
+
+| Orchestrator turn | Tier |
+| --- | --- |
+| Planning, a root-cause verdict, a verification verdict, a decision the run waits on | **high (Opus/Fable)** |
+| Monitor event → status check → RUN-STATE update → short report | execution (Sonnet) |
+
+Two shapes deliver that, and either is fine. Run the mechanical loop in an execution-tier subagent
+that returns only actionable findings. Or run the orchestrator itself on the execution tier, and
+escalate each named decision in the first row to a high-tier subagent. **What must not happen is the
+first row silently running on the execution tier.** Verification of another item's output stays on a
+high tier, as the table below requires.
 
 | Item produces | Tier | Why |
 | --- | --- | --- |
@@ -268,7 +334,7 @@ takes provider, model and reasoning-effort overrides, so an item's tier travels 
 | --- | --- |
 | Set the tier on `spawn` | Correct, and the only route. Per item, no machine state touched |
 | Change a machine-wide default | **Never.** It affects every agent starting in that window, including other repositories' |
-| Leave the item to the orchestrator | For a *verification* pass with no code to write, do not dispatch at all — run it here, or delegate to a high-tier subagent. No worktree is needed to read and judge |
+| Leave the item to the orchestrator | For a *verification* pass with no code to write, do not dispatch at all — delegate it to a high-tier subagent, or run it here only if it fits the ~5-call delegation budget. No worktree is needed to read and judge |
 
 The last row is usually the right answer for verification and often for a pure survey: those
 produce a document and a verdict, not a branch, so the whole worktree apparatus buys nothing.

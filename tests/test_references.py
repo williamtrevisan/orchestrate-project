@@ -981,3 +981,83 @@ class ProductionAndRetractionsAreHonest(unittest.TestCase):
 
     def test_a_refused_tracker_write_has_a_stated_fallback(self):
         self.assertIn("If the tracker refuses the write", self.workflow)
+
+
+class CostFollowsContextTimesTurns(unittest.TestCase):
+    """Summed from every transcript of a real multi-week run, each response
+    counted once: 98.3% of all tokens were cache reads and 0.22% output,
+    orchestrators took about half, and one orchestrator session alone was
+    12.8% of the lifetime spend -- an inline
+    investigation, monitors waking it for nothing, and the top tier on every
+    mechanical turn.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+        self.decisions = read(os.path.join(base, "references", "decisions.md"))
+
+    def test_the_measured_evidence_ships_with_the_rule(self):
+        self.assertIn("cost ≈ context size × number of turns", self.skill)
+        self.assertIn("**9.76 B**", self.skill)
+        self.assertIn("98.3% of all tokens", self.skill)
+        self.assertIn("12.8% of the run's lifetime spend", self.skill)
+        self.assertIn("12.8% of the run's lifetime spend", self.monitor)
+        for inflated in ("19.4 B", "2.88 B", "15% of the run's lifetime spend", "5,739"):
+            self.assertNotIn(inflated, self.skill)
+            self.assertNotIn(inflated, self.monitor)
+            self.assertNotIn(inflated, self.decisions)
+
+    def test_the_recipe_counts_each_response_once(self):
+        self.assertIn('message.get("id") or entry.get("requestId") or entry.get("uuid")', self.monitor)
+        self.assertIn("a naive line sum overstates every absolute total about 2×", self.monitor)
+        self.assertIn("Check the ratio of usage lines to unique ids before trusting a total", self.monitor)
+
+    def test_the_delegation_budget_is_the_largest_lever(self):
+        self.assertIn("Delegation budget: at most ~5 tool calls on any one question", self.skill)
+        self.assertIn("This is the single largest lever", self.skill)
+        self.assertIn("Delegate past five tool calls", self.monitor)
+        self.assertIn("This is the single largest cost lever the orchestrator has", self.monitor)
+        self.assertIn("248 k tokens across 89 tool calls", self.monitor)
+
+    def test_monitors_emit_only_actionable_events(self):
+        self.assertIn("Monitors emit only actionable events", self.skill)
+        self.assertIn("Emit only actionable events", self.monitor)
+        self.assertIn("An event that leads to no action is a wasted full-context turn", self.monitor)
+        self.assertIn("**Never emit**", self.monitor)
+        self.assertIn("stop it; do not re-arm it", self.monitor)
+        self.assertIn("A draft push is not a wake-up", self.monitor)
+
+    def test_compaction_is_scheduled(self):
+        self.assertIn("Compact at natural boundaries, on a schedule", self.monitor)
+
+    def test_retries_are_capped_at_two(self):
+        self.assertIn("Two attempts at most", self.skill)
+        self.assertIn("Bound the attempts on a secondary measurement: two at most", self.monitor)
+
+    def test_one_verification_job_per_head(self):
+        self.assertIn("One verification job per PR head", self.skill)
+        self.assertIn("One verification job per PR head, returning one summary", self.monitor)
+
+    def test_chat_stays_short(self):
+        self.assertIn("Short chat updates", self.skill)
+        self.assertIn("Keep chat updates short", self.monitor)
+
+    def test_the_model_policy_amendment_is_stated_not_silent(self):
+        self.assertNotIn("**Opus orchestrates.", self.skill)
+        self.assertIn("The top tier judges; the mechanical loop runs a tier lower", self.skill)
+        self.assertIn("Amended by measured spend", self.skill)
+        self.assertIn("D-13 · Cost follows context × turns", self.decisions)
+        self.assertIn("What this overturns", self.decisions)
+        self.assertIn("The orchestrator's own helpers get a tier too", self.spawn)
+
+    def test_spend_can_be_measured_without_the_runner(self):
+        self.assertIn("Measuring spend when the runner's usage report is unavailable", self.monitor)
+        self.assertIn("~/.claude/projects/<project-dir>*", self.monitor)
+        for field in ("input_tokens", "cache_creation_input_tokens",
+                      "cache_read_input_tokens", "output_tokens"):
+            self.assertIn(field, self.monitor)
+        self.assertIn("Count each `message.id` once", self.monitor)
+        self.assertIn("Never quote per-token prices from memory", self.monitor)
