@@ -148,6 +148,10 @@ Each item's prompt contains:
   work is **already present and unreviewed** in the base, and that it must be reused rather than
   re-derived or corrected. An implementer that does not know it is standing on unmerged work will
   read a parent's artifact as pre-existing fact and never question it.
+- **Ownership fences, by owner.** For every area another in-flight item is changing, name the
+  branch or pull request that owns it and say that findings there are reported, not fixed. A bare
+  path list was crossed twice on one run ([Phase 4](monitor.md)). Where two items would edit the
+  same files, do not fence them at all — sequence them on the chain.
 
 It is written to `.orch/<REF>/prompt.md` — **outside the worktree, never inside it.** An implementer
 that can commit or delete its own assignment can destroy it, and then no restart can recover what it

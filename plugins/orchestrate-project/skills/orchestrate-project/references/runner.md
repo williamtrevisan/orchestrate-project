@@ -711,6 +711,22 @@ than matching display names.
 `--queue`.** Steering and interrupting act on a turn id that may have moved by the time the call
 lands; use them only when a session is demonstrably going the wrong way, never as a routine nudge.
 
+| Operation | Command |
+| --- | --- |
+| `queued_inputs(id)` | `compozy session input list <session-id> -o json` |
+| `cancel_input(id, entry)` | `compozy session input cancel <session-id> <input-id> -o json` |
+
+**`--queue` delivers after the current turn, and only then.** A long turn keeps running on the
+direction it started with, however many corrections are queued behind it, and the queue's depth is
+invisible unless you ask `session input list`. Observed: a corrective steer sat third in a queue
+while the implementer authored two commits it was meant to prevent; on another item every queued
+steer was still undelivered when the implementer finished the work on its own.
+
+**`--steer` and `--interrupt` are effectively unreachable.** Both require `--expected-turn-id`, and
+`session status` — plain and `-o json` — returns a state and a badge and **no turn id**. The only
+other source is the raw event stream, tens of kilobytes per read. Do not plan a recovery around
+cutting a turn; plan around the turn finishing ([Phase 4](monitor.md)).
+
 `compozy logs --follow` streams over SSE. Prefer `--last` for a bounded read; a follow that is never
 closed holds the session open.
 

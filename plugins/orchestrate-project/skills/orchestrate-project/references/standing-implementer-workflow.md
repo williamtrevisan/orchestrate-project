@@ -46,6 +46,11 @@ cycle: implement → gate → atomic commit.
 **Stay inside this item's scope.** Anything you notice outside it — a bug, a refactor, a
 tempting cleanup — gets reported, not done.
 
+**Where your assignment names another branch or pull request as the owner of some files, a defect
+you find there is reported to that owner, never fixed here** — even when it is real and the fix is
+obvious. Someone else is changing those files right now; a second fix on your branch collides with
+theirs on rebase and puts one change in two reviews.
+
 **4. Run the gate.** Your assignment names the exact command and the directory to run it from —
 they come from `project.gate_command` and `project.gate_working_dir` in the repository's
 `.orchestrate-project.json`, written when the project was configured.

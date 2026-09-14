@@ -833,3 +833,38 @@ class AHungDaemonAndAFilteredPipeBothLookFine(unittest.TestCase):
     def test_the_pipe_status_trap_is_named(self):
         self.assertIn("A filter hides the error you need", self.monitor)
         self.assertIn("`head`'s", self.monitor)
+
+
+class SteersLandLateAndFencesNameAnOwner(unittest.TestCase):
+    """A corrective steer sat third in a queue while the implementer authored the
+    two out-of-scope commits it was meant to prevent, into files a second
+    implementer owned. The fence had named paths, not the owner.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+        self.workflow = read(os.path.join(
+            base, "references", "standing-implementer-workflow.md"))
+
+    def test_queue_delivery_is_after_the_turn(self):
+        self.assertIn("delivers after the current turn, and only then", self.runner)
+        self.assertIn("session input list", self.runner)
+
+    def test_the_missing_turn_id_is_recorded(self):
+        self.assertIn("no turn id", self.runner)
+
+    def test_the_queue_is_pruned_before_adding(self):
+        self.assertIn("Prune before you add", self.monitor)
+        self.assertIn("session input cancel", self.monitor)
+
+    def test_every_steer_restates_the_finish_line(self):
+        self.assertIn("Restate the whole finish line in every steer", self.monitor)
+
+    def test_fences_name_an_owner_and_overlap_is_sequenced(self):
+        self.assertIn("Fence by owner, not by path", self.monitor)
+        self.assertIn("sequence them instead of fencing", self.monitor)
+        self.assertIn("Ownership fences, by owner", self.spawn)
+        self.assertIn("reported to that owner, never fixed here", self.workflow)

@@ -207,6 +207,43 @@ evidence in a PR body is written by the implementer being checked:
   added to the baseline to make it pass.
 - **The merge boundary does not move.** It never does.
 
+## 3.8 Steering a running implementer
+
+A steer is weaker than it looks, and every rule below comes from one that failed.
+
+**It lands after the turn, not now.** `session prompt --queue` delivers when the current turn ends
+([the runner](runner.md)); there is no reachable interrupt. So when judging an implementer's output,
+**check its queue first** — a non-empty `session input list` means it is still working from the
+direction it had before your correction, and what it produces meanwhile is not a response to you.
+
+**Prune before you add.** Cancel queued steers that no longer apply
+(`session input cancel <session> <entry>`) before queueing a new one. Stale steers bury the current
+one, cause redundant work when they finally land, and have been observed to **all remain
+undelivered** while the implementer finished the item on its own — so a steer you queued is not a
+steer it read.
+
+**Restate the whole finish line in every steer.** A steer can end the implementer's turn: it answers
+the narrow correction, reports done, and stops. A message that says only "also fix X" gets X and
+nothing after it. Each steer names what remains in full — the gate, the push, the draft update, the
+ready flip where it applies.
+
+**Fence by owner, not by path.** When another item owns files this implementer might reach, the
+prompt ([Phase 3](spawn.md)) and any later steer name **the branch or pull request that owns them**,
+and tell the implementer to report what it finds there rather than fix it. A path list reads as a
+style rule: observed twice on one run, an implementer fenced off three backend paths found a real
+bug in them and committed two fixes on its own branch — into the files a second implementer was
+fixing on another. It had no way to tell "someone else owns this" from "nobody does".
+
+**When two items can touch the same files, sequence them instead of fencing.** The fence's only
+enforcement is a queued message, which is weaker than the drift it is meant to stop. Put the two on
+one chain ([Phase 1](compute-waves.md)) so the second is cut from the first's branch.
+
+**A claim you retract must be retracted where it travelled.** A briefing, a steer and a pull-request
+body all carry the orchestrator's claims forward. When one proves wrong, correct it in every place it
+reached, explicitly ([D-12](decisions.md)). If an implementer's pull-request body still carries it
+and the steer cannot reach the implementer in time, **edit the body yourself and say in the pull
+request that you did**.
+
 ## 4. Genuine CI failure
 
 1. Enter **that item's own worktree** — not the orchestrating session's, not another item's.
