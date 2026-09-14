@@ -3,11 +3,20 @@
 The babysitting half: one persistent watch over every branch dispatched in this run, until each PR
 is genuinely review-ready or needs re-engagement.
 
-## 1. Arm one monitor for the whole run
+## 1. Arm one monitor per wave, and let it speak only when a decision is needed
 
-A single persistent `Monitor` covering every dispatched branch — not one per item. Its poll loop
-uses `gh pr list` / `gh pr checks` for CI state and paginated REST reads for issue comments,
-submitted reviews and inline review comments.
+A single `Monitor` covering every branch the current wave is waiting on — not one per item. Its poll
+loop uses `gh pr list` / `gh pr checks` for CI state and paginated REST reads for issue comments,
+submitted reviews and inline review comments. **Prefer a monitor that exits when a decision is
+needed** and is re-armed for the next wave, over one that streams for the whole run.
+
+**Every event it emits costs a full-context orchestrator turn.** That is the whole design
+constraint ([`SKILL.md`](../SKILL.md), cost discipline). Measured on a real multi-week run: the
+costliest orchestrator session armed ~52 monitors and stopped ~47. Many of their events were
+running↔done flips, changed-file counts and head moves, and each one woke a turn that concluded
+"nothing to do". **An event that leads to no action is a wasted full-context turn.** Design the
+filter so those events are never emitted, instead of reading and dismissing them. When every signal
+a monitor still watches is non-actionable, **stop it; do not re-arm it.**
 
 **Match branches by exact string, never by pattern.** The branches to watch are the **remote**
 names recorded in `.orch/*/meta.json` (`feat/<ITEM-REF>`), never the runner's local branch name,
@@ -16,8 +25,21 @@ for one teammate silently matches
 nothing for the next — and a monitor that matches nothing does not error, it just reports a wave
 that never finishes.
 
-Emit on five events: **draft PR opened**, **PR marked ready for review**, **CI concluded**,
-**review state changed**, **PR merged**.
+**Emit only actionable events**:
+
+| Emit | Why it is actionable |
+| --- | --- |
+| **PR marked ready for review** | The only release signal ([Phase 5](advance.md)) |
+| **Implementer session done or failed** | Classify it (§3.4), then gate, land or re-dispatch |
+| **PR merged** | Rebase the dependents ([Phase 5](advance.md)) |
+| **A gate or CI failure**, unsuperseded (§3) | Triage (§4) |
+| **Review state changed** | It can revoke review-ready (§2), so it is read, not assumed |
+| **Runner or source unreachable** | An outage is a decision, and silence must keep one meaning |
+| **Draft PR opened**, once per item | Record the PR in RUN-STATE and link the stack ([D-10](decisions.md)) |
+
+**Never emit** intermediate session states, running↔idle flips, changed-file or commit counts, a
+head SHA moving on a draft, or CI concluding green on a draft. Each of those is read at the next
+actionable wake, not woken for.
 
 **The first two are not the same event and must never be collapsed.** A draft opening says an
 implementer has started and its progress is now watchable; the ready flip is the only one
@@ -32,8 +54,10 @@ whose only source is the daemon goes blind exactly when a run most needs watchin
 **And it must emit when that source fails.** A poll loop written as "query, parse, echo on change"
 swallows the failure and prints nothing — which is byte-for-byte what a healthy, unchanged run
 looks like. Observed 2026-09-06: a monitor stayed silent through a full daemon outage and read as
-"still going." Emit an explicit `runner unreachable` line, and keep emitting the git-side counts
-beside it, so silence never has two meanings.
+"still going." Emit an explicit `runner unreachable` line, with the git-side counts inside that same
+line, so silence never has two meanings. The counts ride on the outage event; they are never events
+of their own. Silence then means exactly one thing: every source was readable, and nothing needs a
+decision.
 
 ## 1.5 A filter hides the error you need
 
@@ -81,20 +105,55 @@ each, because neither was written anywhere the orchestrator could re-read.
 graph live as the contract requires. The file replaces re-reading every item body and every PR; it
 never replaces the graph.
 
-**Compact at natural boundaries** — after each PR is verified, after each wave is dispatched — with
-the file just rewritten. Compacting when the window happens to fill lands mid-dispatch, which is the
-cold-start failure in `SKILL.md` seen from the other side.
+**Compact at natural boundaries, on a schedule** — after each PR is verified, after each wave is
+dispatched — with the file just rewritten. Compacting when the window happens to fill lands
+mid-dispatch, which is the cold-start failure in `SKILL.md` seen from the other side.
+
+The schedule is a cost rule as much as a correctness one. **Cost ≈ context size × number of turns**,
+because every turn re-reads the whole window: cache reads were 98% of every token on a real
+multi-week run, and output was 0.3%. A window that is never compacted makes every later turn pay for
+all the earlier ones. The costliest orchestrator session on that run was never reset this way, and it
+alone was **15% of the run's lifetime spend**.
 
 **Prefer single-shot checks to long background polls.** A backgrounded poll loop is exactly what a
-harness reaps under memory pressure, and a reaped poll reports nothing. The run's one persistent
-monitor (§1) stays, and must emit when it cannot read; everything else — waiting on a gate, a CI
-run, an implementer — is one check at the moment a decision needs it. At each turn, confirm the
-monitor itself is still alive.
+harness reaps under memory pressure, and a reaped poll reports nothing. The wave's monitor (§1)
+stays, and must emit when it cannot read; everything else — waiting on a gate, a CI run, an
+implementer — is one check at the moment a decision needs it. At each turn, confirm the monitor
+itself is still alive.
 
-**Bound the attempts on a secondary measurement.** A number that does not gate a decision — a
-timing, a size, a nice-to-have comparison — gets a small, stated number of attempts. When they fail,
-say so, record why in this file, and move on. A number nothing waits on is not worth unbounded
-retries, and a report that says "not measured, and why" is still an honest report.
+**Bound the attempts on a secondary measurement: two at most.** A number that does not gate a
+decision — a timing, a size, a nice-to-have comparison, a hypothesis nothing is waiting on — gets at
+most **two attempts**. When both fail, say so, record why in this file, and stop. Each retry is a
+full-context turn, and on the measured run wrong hypotheses, instrument errors and filters that hid
+the error (§1.5) multiplied exactly those turns. A report that says "not measured, and why" is still
+an honest report.
+
+## 1.7 Delegate past five tool calls, and keep chat short
+
+**This is the single largest cost lever the orchestrator has.** The orchestrator may spend **at most
+~5 tool calls on any single question** before it delegates that question — to a subagent, or to an
+implementer when code must change — and receives only the conclusion.
+
+| Belongs in a fresh context | Stays in the orchestrator |
+| --- | --- |
+| An investigation, including production diagnosis | Dispatching |
+| A verification pass | Reading a verdict |
+| Reading a large diff, or many files | A cheap check that fits the budget |
+| Any question already past its fifth call | Rewriting RUN-STATE |
+
+Measured on a real multi-week run: one production investigation of well over a hundred tool calls
+ran inside the orchestrator, in a session that ended at 2.88 B tokens. For contrast, a fresh-context
+subagent made a multi-file documentation change in **248 k tokens across 89 tool calls**. Every call
+inside the orchestrator re-reads a context hundreds of thousands of tokens deep; a subagent's calls
+re-read only what that question needs. The budget is counted per question, not per turn: the sixth
+call on the same question is the delegation point, however close the answer looks.
+
+**The delegate's tier follows the question** ([Phase 3](spawn.md)). A root-cause or verification
+verdict goes to a high tier; gathering, listing and summarising go to the execution tier.
+
+**Keep chat updates short.** A status reply stays in the window and is re-read on every later turn,
+so a table repeated in chat is paid for again and again. The durable record belongs in this file and
+in PR comments. Chat carries what changed and what needs the human, in a few lines.
 
 ## 2. Two independent dedup keys
 
@@ -167,6 +226,52 @@ nothing, so a run totalled at the end can only measure whatever happens to still
 2026-09-06: six of twelve sessions were unmeasurable by the time the run was reviewed. Write each
 item's usage into its `.orch/<REF>/meta.json` at the moment that item reaches review-ready, not at
 the end of the run.
+
+### Measuring spend when the runner's usage report is unavailable
+
+The agent transcripts outlive the session. Claude Code writes one `.jsonl` file per session under
+`~/.claude/projects/<project-dir>*`, and implementer sessions live in directories named after their
+worktree paths — hence the trailing `*`. Sum every `message.usage` across them:
+
+| Field | Counts |
+| --- | --- |
+| `input_tokens` | Uncached input |
+| `cache_creation_input_tokens` | Input written to the cache |
+| `cache_read_input_tokens` | Context re-read from the cache — expect this to dominate |
+| `output_tokens` | Output |
+
+```
+python3 - ~/.claude/projects/<project-dir>* <<'EOF'
+import collections, glob, json, os, sys
+FIELDS = ("input_tokens", "cache_creation_input_tokens",
+          "cache_read_input_tokens", "output_tokens")
+totals, seen = collections.defaultdict(collections.Counter), set()
+for root in sys.argv[1:]:
+    for path in glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True):
+        for line in open(path, encoding="utf-8", errors="replace"):
+            try:
+                message = json.loads(line).get("message") or {}
+            except ValueError:
+                continue
+            usage = message.get("usage") if isinstance(message, dict) else None
+            if not usage or message.get("id") in seen:
+                continue
+            seen.add(message.get("id"))
+            key = (os.path.basename(root), message.get("model"))
+            totals[key].update({f: usage.get(f) or 0 for f in FIELDS})
+for key, counter in sorted(totals.items()):
+    print(key, dict(counter))
+EOF
+```
+
+**Count each `message.id` once.** One response is written as several lines, one per content block,
+each repeating the same `usage`. Checked on a real transcript: 355 lines carried usage, but only 189
+distinct messages. A naive sum nearly doubles the total.
+
+**Group by directory and `message.model`**, so the orchestrator's share and each tier's share are
+visible separately. **Report tokens by type**, never one blended number, because the read share is
+the finding. **Never quote per-token prices from memory**; where a cost is needed, take it from the
+runner's own report or a current price list and cite which.
 
 ## 3.5 A dead implementer is not a lost item — read its worktree
 
@@ -310,9 +415,14 @@ Check the changed files against the modules the item declared. A PR that reaches
 that implements a different item, is **surfaced — not reported review-ready**. One item produces
 one reviewable PR; a PR that drifts breaks the contract that makes the stack reviewable at all.
 
-**Check it on every draft push, not only at the ready flip.** Drift caught on the third commit is
-a course correction; drift caught at the end is a rewrite. Watching the draft is what buys this,
-and it is most of the reason the draft exists.
+**Check it while the PR is still a draft, not only at the ready flip.** Drift caught on the third
+commit is a course correction; drift caught at the end is a rewrite. Watching the draft is what buys
+this, and it is most of the reason the draft exists.
+
+**A draft push is not a wake-up (§1).** Check scope with one `git diff --name-only` whenever the
+orchestrator is already awake for an actionable event, and fold it into the per-head verification job
+at the ready flip (§7.5). One command at a turn that was happening anyway catches the same drift as
+a turn per push.
 
 ## 6. Automated review
 
@@ -349,6 +459,12 @@ greps and, on the first real run, would have caught the two most damaging defect
 
 Escalate only on a signal from those, or when the item's blast radius earns it. A leaf item gets no
 agent at all. A revision gets a diff-scoped pass, never a re-run of the original.
+
+**One verification job per PR head, returning one summary.** Probing the same PR in sequence — CI
+now, the diff next turn, a citation after that — wakes the orchestrator once per probe, each time at
+full context. Instead, bundle every check that head needs (the cheap checks, the scoped gate, the
+§7.6 discipline) into one job, run it in a subagent or one foreground script, and have it return one
+verdict with its evidence. A new head gets a new job; the same head never gets a second one.
 
 ## 7.6 Verification discipline — each rule is a green reading that was wrong
 
