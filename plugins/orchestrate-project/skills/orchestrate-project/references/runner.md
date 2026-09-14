@@ -139,6 +139,33 @@ The setting stays pending in that case. Read back what is *live* rather than wha
 **`--force` on `remove` confirms a destructive removal.** Read `cleanup_evidence` first and continue
 only when `cleanup.safe` is true. Removal deletes the linked checkout, never the branch or history.
 
+### Teardown is stop → archive → remove, in that order
+
+| Operation | Command |
+| --- | --- |
+| `stop_session(id)` | `compozy session stop <id> -o json` |
+| `archive_session(id)` | `compozy session archive <id> -o json` — accepts only a stopped session |
+| `remove_worktree(ref)` | `compozy worktree remove <ref> --force -o json` |
+
+**Removing the worktree first wedges the CLI.** A worktree whose session is still registered refuses
+with `workspace has active sessions`, and once the directory is gone the session can no longer be
+resolved to be stopped either. The recovery observed was to recreate the deleted path (`mkdir -p`)
+so the CLI could resolve it again, then stop and archive, then remove. The order costs nothing to
+follow and an afternoon to recover from.
+
+**Before any teardown, look for work that never landed.** A child can end its turn `done` with files
+written and nothing committed, pushed or opened as a pull request — the same shape as a killed one
+([Phase 4](monitor.md)):
+
+```
+git -C <worktree> status --short                  # uncommitted work
+git -C <worktree> log --oneline @{upstream}..HEAD # commits never pushed (errors if never pushed at all)
+```
+
+Either non-empty → **re-prompt the child to land it**, and tear down only after its branch and pull
+request reflect the tree. Removing the worktree at that point discards finished work nobody can
+recover.
+
 ## Dispatch
 
 | Operation | Command |
@@ -160,6 +187,53 @@ Check both, or the check is worth nothing.
 
 So the orchestrating session must itself be a Compozy session — [Phase 3](spawn.md) checks this
 first, because every other preflight can pass while this one makes dispatch impossible.
+
+### The whole dispatch line, from a session that is not runner-managed
+
+When the orchestrator is an ordinary agent session rather than one Compozy started, neither half of
+the identity is in its environment. **Both can be supplied inline, on the command itself.** This is
+the line that dispatched every implementer of a long multi-wave run (roughly fifteen, reported
+2026-09-12; every flag is on `spawn --help` for the pinned build):
+
+```
+COMPOZY_SESSION_ID=<parent-session-id> COMPOZY_AGENT=<orchestrator-agent-name> \
+compozy spawn --workspace <registered-workspace> --name <ITEM-REF> --agent <agent> \
+  --ttl-seconds <n> --provider claude --model <model> --reasoning-effort <effort> \
+  --auto-stop-on-parent=false --mcp-server <tracker-server> \
+  --prompt-overlay "$(cat .orch/<REF>/prompt.md)" -o json
+```
+
+It took four refusals to reach it, one flag at a time, and each refusal names only the first thing
+missing:
+
+| Refusal | What was missing |
+| --- | --- |
+| `required flag(s) "agent", "ttl-seconds" not set` | Neither flag has a default |
+| `COMPOZY_SESSION_ID is required for agent commands` | The first half of the identity |
+| `COMPOZY_AGENT is required for agent commands` | The second half, reported only once the first is present |
+| `invalid runtime override: provider is required when model is set` | `--help` lists `--provider` as optional; it stops being optional the moment `--model` is passed |
+
+**This amends, and does not simply contradict, the earlier finding** that borrowing the identity
+from an outside shell hangs. Those hangs are consistent with a daemon whose spawn budget was already
+spent (see "A daemon serves a handful of children per boot" below) — every one came after that day's
+only successful spawns — and the call site was separately shown not to be the discriminator. The inline pair gets past identity; it cannot get past a blocked
+daemon, and nothing on the caller's side can.
+
+**`spawn` targets a registered workspace, never a bare path.** Register first, and give it a name so
+the line above can use one:
+
+```
+compozy workspace add "<path>" --name <name>
+```
+
+Against an unregistered path, `spawn` fails with `workspace not found` — see "A worktree is not a
+workspace" below.
+
+**A `spawn` that returned a child has not started it.** The child sits idle until
+`session prompt` gives it a turn ([Phase 3](spawn.md), step 7). The message is **positional** —
+`compozy session prompt <child-id> "<message>"`; there is no `--message` flag — and the dispatch is
+reported only after the child is re-read as `running` or `prompting`. A spawn block that printed
+success is not evidence anything is working.
 
 **Creating the orchestrating session is itself done from outside** — see "Before anything: can
 this session dispatch at all?" in `SKILL.md`. `compozy session new --cwd "<repo path>"`
@@ -557,8 +631,8 @@ Do not start a new worktree; you would throw away work that is sitting on disk.
 workspace: its name, its `wt_*` id and its absolute path all fail with `workspace not found`.
 
 ```
-compozy workspace add "<worktree path>"     # -> ws_…
-compozy spawn --workspace ws_… …
+compozy workspace add "<worktree path>" --name <ITEM-REF>     # -> ws_…
+compozy spawn --workspace ws_… …                              # or --workspace <ITEM-REF>
 ```
 
 `session new --cwd` auto-registers, which is why the orchestrating session never hits this — and

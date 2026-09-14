@@ -767,3 +767,42 @@ class EveryRunCreatesItsOwnSession(unittest.TestCase):
         """Naming the errors stops someone restoring the rule."""
         for symptom in ("dead runtime", "not attachable", "identity_stale"):
             self.assertIn(symptom, self.skill)
+
+
+class DispatchIsTheWholeLineAndThePrompt(unittest.TestCase):
+    """Four refusals, one flag at a time, before a single dispatch; then two
+    implementers sat idle because a spawn that returned a child was read as a
+    dispatch; then a worktree removed before its session wedged the CLI.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.runner = read(os.path.join(base, "references", "runner.md"))
+        self.spawn = read(os.path.join(base, "references", "spawn.md"))
+
+    def test_the_identity_is_checked_as_a_pair_before_phase_0(self):
+        section = self.skill[self.skill.index("## Before anything"):]
+        self.assertIn("`COMPOZY_AGENT`", section[:section.index("\n### ")])
+
+    def test_the_runner_carries_the_inline_identity_line(self):
+        self.assertIn("COMPOZY_SESSION_ID=<parent-session-id> COMPOZY_AGENT=", self.runner)
+
+    def test_every_refusal_on_the_way_is_named(self):
+        for refusal in ('"agent", "ttl-seconds" not set',
+                        "provider is required when model is set"):
+            self.assertIn(refusal, self.runner)
+
+    def test_a_workspace_is_registered_with_a_name(self):
+        self.assertIn('workspace add "<path>" --name', self.runner)
+
+    def test_the_prompt_is_part_of_the_dispatch(self):
+        self.assertIn("Dispatch is three commands, never one", self.spawn)
+        self.assertIn("no `--message` flag", self.spawn)
+
+    def test_teardown_has_an_order(self):
+        self.assertIn("stop → archive → remove", self.runner)
+        self.assertIn("workspace has active sessions", self.runner)
+
+    def test_teardown_looks_for_unlanded_work_first(self):
+        self.assertIn("look for work that never landed", self.runner)

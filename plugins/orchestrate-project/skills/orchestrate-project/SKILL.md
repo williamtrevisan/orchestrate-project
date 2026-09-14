@@ -307,8 +307,10 @@ identity_required — COMPOZY_SESSION_ID is required for agent commands
 ```
 
 So **the first action of a run — before [Phase 0](references/read.md) reads a single item — is to
-check that `COMPOZY_SESSION_ID` is set in this session's environment.** Unset means this session
-cannot dispatch, and the run stops there.
+check that `COMPOZY_SESSION_ID` and `COMPOZY_AGENT` are both set in this session's environment, or
+that the run has both values to supply inline on `spawn`** ([the runner](references/runner.md) has
+the whole line). The second is only reported once the first is present, so checking one is checking
+neither. Without both, this session cannot dispatch, and the run stops there.
 
 It is checked here rather than alongside the rest of the dispatch preflight
 ([Phase 3](references/spawn.md)) because of what sits in between. Phase 0 reads a whole
@@ -399,8 +401,14 @@ Two consequences, and neither is optional:
 
   So the cost problem above has exactly one remedy that is known to work: **dispatch early in the
   turn**, before the window is spent. Handing the invocation to a fresh session and driving it
-  from outside remains the documented cold start; taking its identity and skipping the session is
-  not a shortcut, it is a hang.
+  from outside remains the documented cold start.
+
+  **Amended by a later run.** Those ten hangs are consistent with a daemon whose per-boot spawn
+  budget was already spent ([the runner](references/runner.md)), and the call site has since been
+  shown not to be the discriminator. On a later long run the pair supplied inline — with `--agent`,
+  `--ttl-seconds`, `--provider` alongside `--model`, and `--auto-stop-on-parent=false` — dispatched
+  every implementer from a session that was not runner-managed. The identity is not the obstacle; a
+  blocked daemon is, and borrowing the identity does not get past that.
 
 ## Selecting the tracker
 
