@@ -240,6 +240,20 @@ tier assertion ([D-5](decisions.md)). Three rules follow:
   `session list` reports — see [the runner](runner.md) for both. A literal string comparison
   reports a mismatch that is not one.
 
+**The orchestrator's own helpers get a tier too, chosen the same way** ([D-13](decisions.md)).
+A subagent the orchestrator delegates to ([Phase 4](monitor.md) §1.7) is sized to its turn, not to
+the orchestrator:
+
+| Helper does | Tier |
+| --- | --- |
+| Watch → check status → update RUN-STATE → report | execution |
+| Gather, list, read a large diff and summarise it | execution |
+| A verification verdict, a root-cause verdict, a plan | high |
+
+Set the model explicitly on every delegation. A helper that inherits the orchestrator's tier by
+default is the same cost bug as an implementation item that came up high. Helpers do not pass
+through the tier assertion above, so the explicit setting is the only control.
+
 **On the fallback route, putting the tier on `session new` is the mistake to avoid.** It takes no
 provider, model or reasoning-effort; passing them is silently accepted and silently ignored, so a
 high-tier item comes up on the execution default and nothing reports it. There, the tier goes on
