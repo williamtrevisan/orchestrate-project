@@ -169,3 +169,43 @@ keeps the never-push boundary intact.
 **Found by comparing lineages, not by review.** Four copies of this skill had diverged across four
 repositories; one had solved this and the others had not. That divergence is the reason this plugin
 exists.
+
+## D-11 · A production action is authorized per instance, and leaves a revert behind
+
+**Decision.** Any destructive or outward action on production — purging a queue, changing a
+production environment variable, repointing live data, triggering a deploy that changes
+configuration — needs the user's explicit authorization **for that instance**. Authorization for one
+does not carry to the next, however similar. Each gets a written log entry: what changed, the state
+before, and how to revert it — or an explicit **"not reversible"** where it is not.
+
+**Why.** These actions sit outside every safety this skill has. No pull request carries them, no
+review sees them, no CI gates them, and the stack's merge boundary does not apply. A run that is
+fixing a production incident is also the run under the most pressure to "just do" one, and the
+consequence lands on real users rather than on a branch.
+
+**Verification follows the same standard.** A production change is verified by driving the real
+surface — fetch the actual resource and read its status — never by a UI that opens. **Measure from
+the machine that matters**: the same resource can succeed from the server and fail from a consumer's
+network, or the reverse, and a result obtained on the wrong machine is not evidence about the other
+one.
+
+**Cost.** Round trips to the user in the middle of an incident. Paid deliberately: the alternative is
+an action nobody can reconstruct or undo.
+
+## D-12 · A wrong claim is retracted everywhere it travelled
+
+**Decision.** When a claim the orchestrator made proves wrong, it is **retracted explicitly** in every
+place it propagated: the briefings and steers that carried it, any persistent notes the orchestrator
+keeps across sessions, the run-state file, and pull-request bodies. Where an implementer's pull
+request still carries the claim and a steer cannot reach the implementer in time, the orchestrator
+**edits the body itself and says in the pull request that it did**.
+
+**Why.** An orchestrator's claim does not stay in the chat. It is copied into prompts, and from there
+into commits, pull-request bodies and notes that later sessions read as fact. Observed: a measurement
+produced by an instrument that ignored its own parameter was briefed to an implementer, and retracted
+mid-run while the implementer was already working from it ([Phase 4](monitor.md) §7.6). Correcting
+the chat alone would have left the wrong number in every place a reviewer actually looks.
+
+**Cost.** Editing a pull-request body the implementer wrote is a write to something the orchestrator
+does not own. It is limited to removing the orchestrator's own retracted claim, and it is disclosed
+in the pull request every time.

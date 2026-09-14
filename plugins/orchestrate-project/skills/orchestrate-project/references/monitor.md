@@ -407,6 +407,12 @@ capability the feature exists for, because the tests assert that the new behavio
 not that it is the behaviour users need. Before reporting a behavioural fix verified, check the
 user-facing path itself.
 
+**Production is verified by driving the real surface, from the machine that matters.** A UI that
+opens is not a working change: fetch the actual resource and read its status. And the same resource
+can succeed from the server and fail from a consumer's network, or the reverse — a result measured
+on the wrong machine is not evidence about the other one. Changing production at all is a human's
+call ([D-11](decisions.md)).
+
 ## 8. Review-ready
 
 Report a PR review-ready only when it is **out of draft**, **CI is green** (or a `CANCELLED` run is

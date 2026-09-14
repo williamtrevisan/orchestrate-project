@@ -947,3 +947,37 @@ class TheRunKeepsItsOwnState(unittest.TestCase):
     def test_polls_and_secondary_measurements_are_bounded(self):
         self.assertIn("Prefer single-shot checks to long background polls", self.monitor)
         self.assertIn("Bound the attempts on a secondary measurement", self.monitor)
+
+
+class ProductionAndRetractionsAreHonest(unittest.TestCase):
+    """Production actions sit outside every review this skill has, and a claim
+    the orchestrator retracted in chat kept living in a briefing and a pull
+    request body.
+    """
+
+    def setUp(self):
+        base = os.path.join(paths.PLUGIN_DIR, "skills", "orchestrate-project")
+        self.skill = read(os.path.join(base, "SKILL.md"))
+        self.monitor = read(os.path.join(base, "references", "monitor.md"))
+        self.decisions = read(os.path.join(base, "references", "decisions.md"))
+        self.workflow = read(os.path.join(
+            base, "references", "standing-implementer-workflow.md"))
+
+    def test_production_actions_are_surfaced_not_done(self):
+        surface = self.skill[self.skill.index("## Surface, don't auto-do"):]
+        surface = surface[:surface.index("\n## ")]
+        self.assertIn("destructive or outward production action", surface)
+
+    def test_each_action_is_authorized_and_logged_with_a_revert(self):
+        self.assertIn("for that instance", self.decisions)
+        self.assertIn('"not reversible"', self.decisions)
+
+    def test_production_is_measured_from_the_machine_that_matters(self):
+        self.assertIn("from the machine that matters", self.monitor)
+
+    def test_retractions_reach_every_place_the_claim_went(self):
+        self.assertIn("retracted everywhere it travelled", self.decisions)
+        self.assertIn("edits the body itself", self.decisions)
+
+    def test_a_refused_tracker_write_has_a_stated_fallback(self):
+        self.assertIn("If the tracker refuses the write", self.workflow)

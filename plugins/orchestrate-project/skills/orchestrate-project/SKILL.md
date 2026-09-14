@@ -299,6 +299,10 @@ that moment — never perform it, never silently skip mentioning it:
 - **A feature flag or kill-switch defaulting OFF.** Name it and state that flipping it is a human
   call. Never flip it.
 - **A production backfill trigger point.** Name it and stop. Never run the backfill.
+- **Any destructive or outward production action** — purging a queue, changing a production env
+  var, repointing live data, a deploy that changes config. Explicit authorization for that one
+  instance, and a written log entry with the before-state and the revert, or "not reversible"
+  ([D-11](references/decisions.md)).
 - **A docs-sync point outside this repo.** Name it and leave it for a human.
 - **A runner that cannot dispatch.** When `spawn` is wedged, or the daemon is hung rather than
   crashed ([the runner](references/runner.md)), say so with the attempts you made and stop
